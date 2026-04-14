@@ -18,16 +18,23 @@ const DEFAULT_STATE = {
   // Placed assets on canvas
   placedAssets: [],
 
+  // Baseline connector bar (connects all letters)
+  baselineEnabled: true,
+  baselineHeight: 3,
+  baselineOffset: 0,
+
   // Support sticks
   stickCount: 2,
   stick1X: 30,
   stick2X: 70,
   stickWidth: 6,
   stickLength: 60,
+  stickTip: 'pointed', // 'flat', 'rounded', 'pointed'
 
   // Canvas
   showGrid: true,
   selectedAssetId: null,
+  draggingAssetId: null,
 
   // Connection status
   isConnected: true,

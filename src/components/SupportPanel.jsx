@@ -25,7 +25,61 @@ export function SupportPanel({ store }) {
 
   return (
     <div className="p-4 space-y-4 border-t border-gray-100">
-      {/* Header */}
+      {/* Baseline Connector */}
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 bg-blue-100 rounded flex items-center justify-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5">
+            <line x1="3" y1="18" x2="21" y2="18" />
+            <line x1="6" y1="12" x2="6" y2="18" />
+            <line x1="12" y1="8" x2="12" y2="18" />
+            <line x1="18" y1="12" x2="18" y2="18" />
+          </svg>
+        </div>
+        <h2 className="text-sm font-semibold text-gray-800">Baseline Connector</h2>
+      </div>
+
+      <div className="bg-blue-50 rounded-lg p-3 text-[11px] text-blue-700 leading-relaxed">
+        The baseline bar connects all letters into one solid piece so nothing falls apart when cut.
+      </div>
+
+      <div className="flex items-center gap-2">
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={state.baselineEnabled}
+            onChange={(e) => update({ baselineEnabled: e.target.checked })}
+            className="sr-only peer"
+          />
+          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
+        </label>
+        <span className="text-xs text-gray-600">Enable baseline bar</span>
+      </div>
+
+      {state.baselineEnabled && (
+        <>
+          <Slider
+            label="Bar Thickness"
+            value={state.baselineHeight}
+            min={1}
+            max={10}
+            step={0.5}
+            onChange={(v) => update({ baselineHeight: v })}
+            unit="px"
+          />
+          <Slider
+            label="Vertical Offset"
+            value={state.baselineOffset}
+            min={-20}
+            max={20}
+            onChange={(v) => update({ baselineOffset: v })}
+            unit="px"
+          />
+        </>
+      )}
+
+      <div className="h-px bg-gray-100" />
+
+      {/* Support Sticks Header */}
       <div className="flex items-center gap-2">
         <div className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5">
@@ -57,6 +111,41 @@ export function SupportPanel({ store }) {
         </div>
       </div>
 
+      {/* Stick Tip Shape */}
+      <div>
+        <label className="text-xs text-gray-500 mb-2 block">Tip Shape</label>
+        <div className="flex gap-1.5">
+          {['flat', 'rounded', 'pointed'].map((tipId) => (
+            <button
+              key={tipId}
+              onClick={() => update({ stickTip: tipId })}
+              className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all flex flex-col items-center gap-1 ${
+                state.stickTip === tipId
+                  ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <svg width="20" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                {tipId === 'flat' && <rect x="6" y="14" width="12" height="6" />}
+                {tipId === 'rounded' && (
+                  <>
+                    <rect x="6" y="10" width="12" height="6" />
+                    <ellipse cx="12" cy="16" rx="6" ry="4" />
+                  </>
+                )}
+                {tipId === 'pointed' && (
+                  <>
+                    <rect x="6" y="8" width="12" height="6" />
+                    <polygon points="6,14 18,14 12,22" />
+                  </>
+                )}
+              </svg>
+              {tipId.charAt(0).toUpperCase() + tipId.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Stick 1 Position */}
       <Slider
         label="Stick 1 Position"
@@ -67,7 +156,7 @@ export function SupportPanel({ store }) {
         unit="%"
       />
 
-      {/* Stick 2 Position (only if 2 sticks) */}
+      {/* Stick 2 Position */}
       {state.stickCount === 2 && (
         <Slider
           label="Stick 2 Position"
@@ -79,7 +168,6 @@ export function SupportPanel({ store }) {
         />
       )}
 
-      {/* Stick Dimensions */}
       <div className="h-px bg-gray-100" />
 
       <Slider
@@ -99,11 +187,6 @@ export function SupportPanel({ store }) {
         onChange={(v) => update({ stickLength: v })}
         unit="mm"
       />
-
-      {/* Info */}
-      <div className="bg-amber-50 rounded-lg p-3 text-[11px] text-amber-700 leading-relaxed">
-        <strong>Tip:</strong> Sticks are automatically welded to the bottom of your design. Position them where the topper needs the most support.
-      </div>
     </div>
   )
 }
