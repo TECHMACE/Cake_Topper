@@ -184,6 +184,32 @@ export function TextPanel({ store }) {
         unit="px"
       />
 
+      {/* Letter Thickness */}
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs items-center">
+          <span className="text-gray-500">Letter Thickness</span>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-700 font-medium tabular-nums">{state.letterExpansion}px</span>
+            {state.letterExpansion !== 0 && (
+              <button
+                onClick={() => update({ letterExpansion: 0 })}
+                className="text-[10px] text-violet-500 hover:text-violet-700 font-medium"
+              >Reset</button>
+            )}
+          </div>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={15}
+          step={1}
+          value={state.letterExpansion}
+          onChange={(e) => update({ letterExpansion: parseInt(e.target.value, 10) })}
+          className="w-full accent-violet-500"
+        />
+        <p className="text-[10px] text-gray-400">Thickens strokes — useful for thin/script fonts</p>
+      </div>
+
       {/* Letter Spacing */}
       <Slider
         label="Letter Spacing"

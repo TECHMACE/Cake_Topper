@@ -36,17 +36,30 @@ export function Header({ onExport, onCheck, isConnected }) {
         {/* Divider */}
         <div className="w-px h-5 bg-gray-200" />
 
-        {/* Export */}
+        {/* Export — amber warning ring when design has gaps */}
         <button
           onClick={onExport}
-          className="h-8 px-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-lg text-xs font-semibold hover:from-violet-700 hover:to-fuchsia-700 transition-all shadow-md shadow-violet-200/60 flex items-center gap-1.5"
+          title={isConnected ? 'Export cut-ready SVG' : 'Design has gaps — some pieces will fall out when cut'}
+          className={`h-8 px-4 text-white rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            isConnected
+              ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 shadow-md shadow-violet-200/60'
+              : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-md shadow-amber-200/60 ring-2 ring-amber-300 ring-offset-1'
+          }`}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Download SVG
+          {!isConnected && (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          )}
+          {isConnected ? (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          ) : null}
+          {isConnected ? 'Download SVG' : 'Download (has gaps)'}
         </button>
       </div>
     </header>

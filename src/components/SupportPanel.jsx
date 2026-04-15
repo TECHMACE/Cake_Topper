@@ -20,45 +20,117 @@ function Slider({ label, value, min, max, step, onChange, unit }) {
   )
 }
 
+// Connection type options — what physically joins the letters together
+const CONNECTION_TYPES = [
+  {
+    id: 'none',
+    label: 'None',
+    desc: 'Letters stand alone',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <rect x="2" y="4" width="8" height="12" rx="1.5"/>
+        <rect x="12" y="4" width="4" height="12" rx="1.5"/>
+        <rect x="18" y="4" width="8" height="12" rx="1.5"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'baseline',
+    label: 'Bar',
+    desc: 'Horizontal baseline bar',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <rect x="2" y="3" width="8" height="12" rx="1.5"/>
+        <rect x="12" y="3" width="4" height="12" rx="1.5"/>
+        <rect x="18" y="3" width="8" height="12" rx="1.5"/>
+        <rect x="1" y="13" width="26" height="4" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'circle',
+    label: 'Circle',
+    desc: 'Round backing plate',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <ellipse cx="14" cy="10" rx="13" ry="9"/>
+        <rect x="4" y="4" width="5" height="10" rx="1" fill="white" opacity="0.7"/>
+        <rect x="11" y="4" width="3" height="10" rx="1" fill="white" opacity="0.7"/>
+        <rect x="16" y="4" width="7" height="10" rx="1" fill="white" opacity="0.7"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'rectangle',
+    label: 'Rect',
+    desc: 'Square backing plate',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <rect x="1" y="1" width="26" height="18" rx="2"/>
+        <rect x="4" y="4" width="5" height="10" rx="1" fill="white" opacity="0.7"/>
+        <rect x="11" y="4" width="3" height="10" rx="1" fill="white" opacity="0.7"/>
+        <rect x="16" y="4" width="7" height="10" rx="1" fill="white" opacity="0.7"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'diamond',
+    label: 'Diamond',
+    desc: 'Diamond backing plate',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <polygon points="14,1 27,10 14,19 1,10"/>
+        <rect x="5" y="5" width="4" height="8" rx="1" fill="white" opacity="0.7"/>
+        <rect x="11" y="5" width="3" height="8" rx="1" fill="white" opacity="0.7"/>
+        <rect x="16" y="5" width="5" height="8" rx="1" fill="white" opacity="0.7"/>
+      </svg>
+    ),
+  },
+]
+
 export function SupportPanel({ store }) {
   const { state, update } = store
+  const connType = state.connectionType || 'baseline'
 
   return (
     <div className="p-4 space-y-5">
 
-      {/* ── Baseline Connector ── */}
+      {/* ── Connection Type ── */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-50 rounded-lg flex items-center justify-center">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5">
-                <line x1="3" y1="18" x2="21" y2="18" />
-                <line x1="6" y1="12" x2="6" y2="18" />
-                <line x1="12" y1="8" x2="12" y2="18" />
-                <line x1="18" y1="12" x2="18" y2="18" />
-              </svg>
-            </div>
-            <h2 className="text-sm font-semibold text-gray-800">Baseline Bar</h2>
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-6 h-6 bg-violet-50 rounded-lg flex items-center justify-center">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.5">
+              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+            </svg>
           </div>
-
-          {/* Toggle */}
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={state.baselineEnabled}
-              onChange={(e) => update({ baselineEnabled: e.target.checked })}
-              className="sr-only peer"
-            />
-            <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-blue-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all" />
-          </label>
+          <h2 className="text-sm font-semibold text-gray-800">Connection</h2>
         </div>
-
         <p className="text-[11px] text-gray-400 leading-relaxed mb-3">
-          Connects all letters into one solid piece — essential for cutting.
+          How letters are joined into one cuttable piece. <span className="text-amber-600 font-medium">None</span> works if letters naturally touch.
         </p>
 
-        {state.baselineEnabled && (
-          <div className="space-y-3 pl-1">
+        <div className="grid grid-cols-5 gap-1">
+          {CONNECTION_TYPES.map((ct) => (
+            <button
+              key={ct.id}
+              onClick={() => update({ connectionType: ct.id })}
+              title={ct.desc}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-[9px] font-medium transition-all ${
+                connType === ct.id
+                  ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-400'
+                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100 ring-1 ring-transparent'
+              }`}
+            >
+              <span className={connType === ct.id ? 'text-violet-600' : 'text-gray-400'}>{ct.svg}</span>
+              {ct.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Options for baseline bar */}
+        {connType === 'baseline' && (
+          <div className="mt-3 space-y-3 pl-1">
             <Slider
               label="Bar Thickness"
               value={state.baselineHeight}
@@ -74,6 +146,21 @@ export function SupportPanel({ store }) {
               min={-40}
               max={10}
               onChange={(v) => update({ baselineOffset: v })}
+              unit="px"
+            />
+          </div>
+        )}
+
+        {/* Options for backing shapes */}
+        {(connType === 'circle' || connType === 'rectangle' || connType === 'diamond') && (
+          <div className="mt-3 pl-1">
+            <Slider
+              label="Shape Padding"
+              value={state.baseShapePadding}
+              min={4}
+              max={80}
+              step={2}
+              onChange={(v) => update({ baseShapePadding: v })}
               unit="px"
             />
           </div>
@@ -164,27 +251,8 @@ export function SupportPanel({ store }) {
           </div>
         </div>
 
+        {/* Stick dimensions */}
         <div className="space-y-3">
-          <Slider
-            label="Stick 1 Position"
-            value={state.stick1X}
-            min={5}
-            max={95}
-            onChange={(v) => update({ stick1X: v })}
-            unit="%"
-          />
-
-          {state.stickCount === 2 && (
-            <Slider
-              label="Stick 2 Position"
-              value={state.stick2X}
-              min={5}
-              max={95}
-              onChange={(v) => update({ stick2X: v })}
-              unit="%"
-            />
-          )}
-
           <Slider
             label="Stick Width"
             value={state.stickWidth}
@@ -193,7 +261,6 @@ export function SupportPanel({ store }) {
             onChange={(v) => update({ stickWidth: v })}
             unit="px"
           />
-
           <Slider
             label="Stick Length"
             value={state.stickLength}
@@ -204,6 +271,86 @@ export function SupportPanel({ store }) {
             unit="px"
           />
         </div>
+
+        <div className="h-px bg-gray-100 my-3" />
+
+        {/* Stick 1 position */}
+        <div className="space-y-3">
+          <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Stick 1</p>
+          <Slider
+            label="Position X"
+            value={state.stick1X}
+            min={5}
+            max={95}
+            onChange={(v) => update({ stick1X: v })}
+            unit="%"
+          />
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs items-center">
+              <span className="text-gray-500">Position Y</span>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-700 font-medium tabular-nums">{state.stick1Y > 0 ? '+' : ''}{state.stick1Y}px</span>
+                {state.stick1Y !== 0 && (
+                  <button onClick={() => update({ stick1Y: 0 })} className="text-[10px] text-blue-500 hover:text-blue-700 font-medium">Reset</button>
+                )}
+              </div>
+            </div>
+            <input
+              type="range"
+              min={-80}
+              max={80}
+              value={state.stick1Y}
+              onChange={(e) => update({ stick1Y: parseInt(e.target.value, 10) })}
+              className="w-full accent-blue-500"
+            />
+            <div className="flex justify-between text-[9px] text-gray-400 px-0.5">
+              <span>↑ Higher</span>
+              <span>Default</span>
+              <span>Lower ↓</span>
+            </div>
+          </div>
+        </div>
+
+        {state.stickCount === 2 && (
+          <>
+            <div className="h-px bg-gray-100 my-3" />
+            <div className="space-y-3">
+              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Stick 2</p>
+              <Slider
+                label="Position X"
+                value={state.stick2X}
+                min={5}
+                max={95}
+                onChange={(v) => update({ stick2X: v })}
+                unit="%"
+              />
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs items-center">
+                  <span className="text-gray-500">Position Y</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700 font-medium tabular-nums">{state.stick2Y > 0 ? '+' : ''}{state.stick2Y}px</span>
+                    {state.stick2Y !== 0 && (
+                      <button onClick={() => update({ stick2Y: 0 })} className="text-[10px] text-blue-500 hover:text-blue-700 font-medium">Reset</button>
+                    )}
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={-80}
+                  max={80}
+                  value={state.stick2Y}
+                  onChange={(e) => update({ stick2Y: parseInt(e.target.value, 10) })}
+                  className="w-full accent-blue-500"
+                />
+                <div className="flex justify-between text-[9px] text-gray-400 px-0.5">
+                  <span>↑ Higher</span>
+                  <span>Default</span>
+                  <span>Lower ↓</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="h-px bg-gray-100" />

@@ -5,7 +5,7 @@ let nextAssetId = 1
 
 const DEFAULT_STATE = {
   // Text settings
-  text: 'Happy Birthday',
+  text: 'Happy\nBirthday',
   fontName: DEFAULT_FONT.name,
   fontFamily: DEFAULT_FONT.family,
   fontWeight: DEFAULT_FONT.weight || '400',
@@ -15,6 +15,7 @@ const DEFAULT_STATE = {
   textX: 0,
   textY: 0,
   arcAmount: 0, // -100 to 100: negative = valley, positive = arch over
+  letterExpansion: 0,    // 0–15px: inflates letter strokes for thicker cuts
 
   // Output sizing (for laser/Cricut export)
   outputWidthInches: 10, // target cut width in inches
@@ -22,17 +23,21 @@ const DEFAULT_STATE = {
   // Placed assets on canvas
   placedAssets: [],
 
-  // Baseline connector bar (connects all letters)
-  // Real toppers have a bar ~4–6mm thick — at 10" output, 1px ≈ 0.32mm
-  baselineEnabled: true,
-  baselineHeight: 18,    // ~5.7mm — solid, visible bar
+  // Connection type — how letters are physically joined into one cuttable piece
+  // 'none'      = letters stand alone (fine for touching/overlapping fonts)
+  // 'baseline'  = horizontal bar along letter bottoms
+  // 'circle' | 'rectangle' | 'diamond' = solid backing plate behind text
+  connectionType: 'baseline',
+  baselineHeight: 18,    // ~5.7mm — solid, visible bar (used when type=baseline)
   baselineOffset: -8,    // bite 8px up into letter bottoms for a strong weld
+  baseShapePadding: 20,  // px padding around text bounds for shape backing
 
   // Support sticks
-  // Standard bamboo skewer is ~3mm dia; cake picks are 4–6mm wide
   stickCount: 2,
   stick1X: 28,
+  stick1Y: 0,            // vertical offset for stick 1 (-80 to 80px)
   stick2X: 72,
+  stick2Y: 0,            // vertical offset for stick 2 (-80 to 80px)
   stickWidth: 16,        // ~5mm — properly grippable
   stickLength: 260,      // ~82mm — deep enough to anchor in a tall cake
   stickTip: 'pointed',   // 'flat', 'rounded', 'pointed'
@@ -45,7 +50,7 @@ const DEFAULT_STATE = {
   selectedAssetId: null,
   draggingAssetId: null,
 
-  // Connection status
+  // Connection status (computed by Canvas render)
   isConnected: true,
 }
 

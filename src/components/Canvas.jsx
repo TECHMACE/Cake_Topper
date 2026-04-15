@@ -44,16 +44,20 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     t: state.text, fn: state.fontName, fw: state.fontWeight,
     fs: state.fontSize, ls: state.letterSpacing, lh: state.lineHeight,
     tx: state.textX, ty: state.textY, arc: state.arcAmount, pa: state.placedAssets,
-    be: state.baselineEnabled, bh: state.baselineHeight, bo: state.baselineOffset,
-    sc: state.stickCount, s1: state.stick1X, s2: state.stick2X,
+    ct: state.connectionType, bh: state.baselineHeight, bo: state.baselineOffset,
+    bsp: state.baseShapePadding, le: state.letterExpansion,
+    sc: state.stickCount, s1: state.stick1X, s1y: state.stick1Y,
+    s2: state.stick2X, s2y: state.stick2Y,
     sw: state.stickWidth, sl: state.stickLength, st: state.stickTip,
     sg: state.showGrid, sa: state.selectedAssetId,
     ow: state.outputWidthInches, pc: state.previewColor,
     fl: loadedFont ? 'yes' : 'no',
   }), [state.text, state.fontName, state.fontWeight, state.fontSize, state.letterSpacing,
     state.lineHeight, state.textX, state.textY, state.arcAmount, state.placedAssets,
-    state.baselineEnabled, state.baselineHeight, state.baselineOffset,
-    state.stickCount, state.stick1X, state.stick2X, state.stickWidth, state.stickLength,
+    state.connectionType, state.baselineHeight, state.baselineOffset,
+    state.baseShapePadding, state.letterExpansion,
+    state.stickCount, state.stick1X, state.stick1Y, state.stick2X, state.stick2Y,
+    state.stickWidth, state.stickLength,
     state.stickTip, state.showGrid, state.selectedAssetId, state.outputWidthInches,
     state.previewColor, loadedFont])
 
@@ -220,6 +224,28 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
             } catch { /* keep going */ }
           }
           textPath.fillColor = FILL
+
+          // --- LETTER THICKNESS EXPANSION ---
+          // Inflate outer contours outward & shrink inner holes inward
+          // giving the effect of thicker / bolder letter strokes.
+          const expansion = state.letterExpansion || 0
+          if (expansion > 0 && textPath.className === 'CompoundPath' && textPath.children) {
+            textPath.children.forEach((child) => {
+              if (child.className !== 'Path') return
+              const isOuter = child.clockwise
+              const center = child.bounds.center
+              const avg = (child.bounds.width + child.bounds.height) / 2
+              if (avg < 2) return
+              const factor = isOuter
+                ? (avg + expansion * 2) / avg
+                : Math.max(0.05, (avg - expansion * 2) / avg)
+              child.scale(factor, center)
+            })
+          } else if (expansion > 0 && textPath.className === 'Path') {
+            const avg = (textPath.bounds.width + textPath.bounds.height) / 2
+            if (avg >= 2) textPath.scale((avg + expansion * 2) / avg, textPath.bounds.center)
+          }
+
           textBounds = textPath.bounds.clone()
         }
       } else if (text && !loadedFont) {
@@ -244,10 +270,67 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         loadingText.fillColor = new scope.Color('#94a3b8')
       }
 
-      // --- BASELINE CONNECTOR BAR ---
+      // --- CONNECTION: BASELINE BAR / BACKING SHAPE ---
       let baselinePath = null
       const isArced = (state.arcAmount || 0) !== 0
-      if (state.baselineEnabled && textBounds) {
+      const connType = state.connectionType || 'baseline'
+
+      // ── Backing shape (circle / rectangle / diamond) ──────────────────────
+      // These act as FOOTER CONNECTORS — positioned at the bottom of the text,
+      // overlapping just enough to weld onto the letters. Sticks attach below.
+      if (connType !== 'baseline' && connType !== 'none' && textBounds) {
+        const pad = state.baseShapePadding || 20
+        const cx = textBounds.center.x
+        const overlapY = textBounds.height * 0.28       // how deep into text the shape overlaps
+        const shapeTop = textBounds.bottom - overlapY + (state.baselineOffset || -8)
+        // Width spans full text width + side padding
+        const shapeHW = textBounds.width / 2 + pad      // half-width
+        // Height = padding-driven: small pad → thin bar-like, large pad → taller shape
+        const shapeHH = Math.max(20, pad * 1.2)         // half-height
+        let shapePath = null
+
+        if (connType === 'circle') {
+          // Oval/ellipse footer
+          shapePath = new scope.Path.Ellipse(
+            new scope.Rectangle(cx - shapeHW, shapeTop, shapeHW * 2, shapeHH * 2)
+          )
+        } else if (connType === 'rectangle') {
+          shapePath = new scope.Path.Rectangle(
+            new scope.Rectangle(cx - shapeHW, shapeTop, shapeHW * 2, shapeHH * 2),
+            new scope.Size(8, 8)
+          )
+        } else if (connType === 'diamond') {
+          const shapeCY = shapeTop + shapeHH
+          shapePath = new scope.Path({
+            segments: [
+              [cx,           shapeTop],
+              [cx + shapeHW, shapeCY],
+              [cx,           shapeTop + shapeHH * 2],
+              [cx - shapeHW, shapeCY],
+            ],
+            closed: true,
+          })
+        }
+
+        if (shapePath) {
+          shapePath.fillColor = FILL
+          if (textPath) {
+            try {
+              const u = textPath.unite(shapePath)
+              textPath.remove(); shapePath.remove()
+              textPath = u
+              textPath.fillColor = FILL
+              textBounds = textPath.bounds.clone()
+            } catch { shapePath.remove() }
+          } else {
+            textPath = shapePath
+            textBounds = shapePath.bounds.clone()
+          }
+        }
+      }
+
+      // ── Baseline bar ──────────────────────────────────────────────────────
+      if (connType === 'baseline' && textBounds) {
         const barHeight = state.baselineHeight
         const overlapAmount = textBounds.height * 0.30
 
@@ -367,10 +450,11 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       let rightX = textBounds ? textBounds.right : centerX + 100
       const spanW = rightX - leftX
 
-      function makeStick(xPct) {
+      function makeStick(xPct, yOff = 0) {
         const sx = leftX + (xPct / 100) * spanW
         const hw = state.stickWidth / 2
-        const stickTop = bottomY - Math.max(8, state.baselineHeight * 2)
+        const overlapDepth = connType === 'none' ? 0 : Math.max(8, state.baselineHeight * 2)
+        const stickTop = bottomY - overlapDepth + yOff
 
         if (state.stickTip === 'pointed') {
           const bH = state.stickLength * 0.75
@@ -397,8 +481,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         }
       }
 
-      const stickPaths = [makeStick(state.stick1X)]
-      if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X))
+      const stickPaths = [makeStick(state.stick1X, state.stick1Y || 0)]
+      if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X, state.stick2Y || 0))
 
       // --- FINAL BOOLEAN UNION ---
       let finalPath = textPath
@@ -587,6 +671,17 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       const finalDesign = designLayer.children.find(c => c.name === 'final-design')
       if (!finalDesign) return
+
+      // ── Pre-export connectivity check ─────────────────────────────────────
+      if (!connectedRef.current) {
+        const proceed = window.confirm(
+          '⚠️  Disconnected pieces detected!\n\n' +
+          'Some parts of your design are not connected and will fall out when cut.\n\n' +
+          'Tip: enable a Baseline Bar or Backing Shape (Structure tab) to join everything into one piece.\n\n' +
+          'Export anyway?'
+        )
+        if (!proceed) return
+      }
 
       const exportPath = finalDesign.clone()
       const bounds = exportPath.bounds
