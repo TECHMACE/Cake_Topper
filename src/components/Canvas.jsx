@@ -819,24 +819,26 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       }
 
       // ── 2. Line height from actual font metrics ────────────────────────────
-      // A fixed ratio like 0.88 doesn't account for different fonts' real
-      // ascender/descender depths. We use opentype metrics to guarantee the
-      // visual bottom of line 1 overlaps the visual top of line 2 by ~14px,
-      // so the lines physically weld without needing auto-bridges.
+      // Geometry: baseline of line N = centerY + N × (fontSize × lineHeight)
+      //   visual bottom of line 0 = centerY + descVisRatio × fontSize
+      //   visual top    of line 1 = centerY + lineHeight × fontSize - capRatio × fontSize
       //
-      // Logic: visual line span ≈ capHeight (above baseline) + descVisual (below)
-      //   capHeight   ≈ 70% of ascender ratio
-      //   descVisual  ≈ 60% of |descender| ratio
-      // lineHeight that causes 14px overlap = capRatio + descVisRatio + 14/fontSize
+      // For OVERLAP pixels of overlap:
+      //   descVisRatio × fontSize ≥ lineHeight × fontSize - capRatio × fontSize + OVERLAP
+      //   → lineHeight ≤ capRatio + descVisRatio - OVERLAP / fontSize   ← MINUS, not plus
+      //
+      // Safety cap at 0.75: even if font metrics suggest wider spacing,
+      // multi-line cake toppers always look better with tight touching lines.
       let lineHeight = 1.05
       if (isMultiLine) {
         const upm = font.unitsPerEm || 1000
-        const ascRatio  = (font.ascender  || upm * 0.8)  / upm
-        const dscRatio  = Math.abs(font.descender || upm * 0.2) / upm
-        const capRatio      = ascRatio * 0.70   // typical cap-height fraction
-        const descVisRatio  = dscRatio * 0.60   // typical descender visual depth
-        const OVERLAP_PX    = 14                // px overlap → clean weld
-        lineHeight = Math.max(0.55, Math.min(0.82, capRatio + descVisRatio + OVERLAP_PX / fontSize))
+        const ascRatio     = (font.ascender  || upm * 0.8)        / upm
+        const dscRatio     = Math.abs(font.descender || upm * 0.2) / upm
+        const capRatio     = ascRatio * 0.70   // cap height ≈ 70% of ascender
+        const descVisRatio = dscRatio * 0.65   // visible descenders ≈ 65% of metric
+        const OVERLAP_PX   = 14               // guaranteed px of visual overlap
+        const computed     = capRatio + descVisRatio - OVERLAP_PX / fontSize
+        lineHeight = Math.max(0.52, Math.min(0.75, computed))
       }
 
       // ── 3. Bar proportions ─────────────────────────────────────────────────
