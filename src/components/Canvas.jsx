@@ -818,27 +818,32 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         fontSize = Math.max(40, Math.min(200, fontSize))
       }
 
-      // ── 2. Line height from actual font metrics ────────────────────────────
-      // Geometry: baseline of line N = centerY + N × (fontSize × lineHeight)
-      //   visual bottom of line 0 = centerY + descVisRatio × fontSize
-      //   visual top    of line 1 = centerY + lineHeight × fontSize - capRatio × fontSize
+      // ── 2. Line height: test-render to measure the real gap ──────────────────
+      // Font metric estimates (ascender/descender ratios) are unreliable across
+      // fonts. Instead we actually render both lines at lineHeight=1.0 using
+      // Paper.js, measure the real gap between visual bottom of line 0 and
+      // visual top of line 1, then compute the lineHeight that gives 18px overlap.
       //
-      // For OVERLAP pixels of overlap:
-      //   descVisRatio × fontSize ≥ lineHeight × fontSize - capRatio × fontSize + OVERLAP
-      //   → lineHeight ≤ capRatio + descVisRatio - OVERLAP / fontSize   ← MINUS, not plus
-      //
-      // Safety cap at 0.75: even if font metrics suggest wider spacing,
-      // multi-line cake toppers always look better with tight touching lines.
-      let lineHeight = 1.05
-      if (isMultiLine) {
-        const upm = font.unitsPerEm || 1000
-        const ascRatio     = (font.ascender  || upm * 0.8)        / upm
-        const dscRatio     = Math.abs(font.descender || upm * 0.2) / upm
-        const capRatio     = ascRatio * 0.70   // cap height ≈ 70% of ascender
-        const descVisRatio = dscRatio * 0.65   // visible descenders ≈ 65% of metric
-        const OVERLAP_PX   = 14               // guaranteed px of visual overlap
-        const computed     = capRatio + descVisRatio - OVERLAP_PX / fontSize
-        lineHeight = Math.max(0.52, Math.min(0.75, computed))
+      // Math: gap(lh) = (lh - 1) × fontSize + gap(1.0)
+      //       for gap = -OVERLAP_PX: lh = 1 - (OVERLAP_PX + gap_at_1) / fontSize
+      let lineHeight = 0.68  // fallback if test render fails
+      if (isMultiLine && scopeRef.current) {
+        try {
+          const scope = scopeRef.current
+          scope.activate()
+          const { pathData: pd0 } = textToSvgPath(font, lines[0], fontSize, 0, 0, letterSpacing)
+          const { pathData: pd1 } = textToSvgPath(font, lines[1], fontSize, 0, fontSize, letterSpacing)
+          if (pd0 && pd1) {
+            const p0 = new scope.CompoundPath(pd0)
+            const p1 = new scope.CompoundPath(pd1)
+            const gapAt1 = p1.bounds.top - p0.bounds.bottom  // positive = gap, negative = overlap
+            p0.remove()
+            p1.remove()
+            const OVERLAP_PX = 18
+            const computed = 1 - (OVERLAP_PX + gapAt1) / fontSize
+            lineHeight = Math.max(0.50, Math.min(0.80, computed))
+          }
+        } catch (_) { /* fall back to 0.68 */ }
       }
 
       // ── 3. Bar proportions ─────────────────────────────────────────────────
