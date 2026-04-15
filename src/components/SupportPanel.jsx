@@ -189,7 +189,7 @@ export function SupportPanel({ store }) {
             {[0, 1, 2].map((n) => (
               <button
                 key={n}
-                onClick={() => update({ stickCount: n })}
+                onClick={() => update(n === 1 ? { stickCount: 1, stick1X: 50 } : { stickCount: n })}
                 className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all ${
                   state.stickCount === n
                     ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-300'

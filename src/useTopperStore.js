@@ -28,8 +28,8 @@ const DEFAULT_STATE = {
   // 'baseline'  = horizontal bar along letter bottoms
   // 'circle' | 'rectangle' | 'diamond' = solid backing plate behind text
   connectionType: 'baseline',
-  baselineHeight: 18,    // ~5.7mm — solid, visible bar (used when type=baseline)
-  baselineOffset: -8,    // bite 8px up into letter bottoms for a strong weld
+  baselineHeight: 12,    // ~3.8mm — slim elegant bar (used when type=baseline)
+  baselineOffset: -6,    // bite 6px up into letter bottoms for a clean weld
   baseShapePadding: 20,  // px padding around text bounds for shape backing
 
   // Support sticks

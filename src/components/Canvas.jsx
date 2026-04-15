@@ -14,9 +14,12 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   storeRef.current = store
 
   const dragRef = useRef({ active: false, assetId: null, startX: 0, startY: 0, origX: 0, origY: 0 })
+  const stickDragRef = useRef({ active: false, id: null, startX: 0, origPct: 0 })
+  const stickLayoutRef = useRef({ leftX: 0, spanW: 1, bottomY: 0 })
   const [loadedFont, setLoadedFont] = useState(null)
   const [fontLoading, setFontLoading] = useState(false)
   const [cutWarnings, setCutWarnings] = useState([])
+  const [stickHandlePos, setStickHandlePos] = useState([])
 
   const { state } = store
 
@@ -369,14 +372,18 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           baselinePath.fillColor = FILL
         } else {
           const barY = textBounds.bottom - overlapAmount + state.baselineOffset
-          const overhang = Math.max(24, barHeight * 1.5)
+          // Tight overhang: just enough to extend past the text edge for a clean look
+          const overhang = Math.max(6, barHeight * 0.6)
+          // Pill-shaped ends (fully rounded) — elegant, not blocky
+          const radius = barHeight / 2
           baselinePath = new scope.Path.Rectangle(
             new scope.Rectangle(
               textBounds.left - overhang,
               barY,
               textBounds.width + overhang * 2,
               barHeight
-            )
+            ),
+            new scope.Size(radius, radius)
           )
           baselinePath.fillColor = FILL
         }
@@ -484,6 +491,17 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       if (state.stickCount >= 1) stickPaths.push(makeStick(state.stick1X, state.stick1Y || 0))
       if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X, state.stick2Y || 0))
 
+      // Persist layout so stick-drag handles can map x% ↔ canvas px
+      stickLayoutRef.current = { leftX, spanW, bottomY }
+      const newHandlePos = []
+      if (state.stickCount >= 1) {
+        newHandlePos.push({ id: 's1', x: leftX + (state.stick1X / 100) * spanW, y: bottomY })
+      }
+      if (state.stickCount === 2) {
+        newHandlePos.push({ id: 's2', x: leftX + (state.stick2X / 100) * spanW, y: bottomY })
+      }
+      setTimeout(() => setStickHandlePos(newHandlePos), 0)
+
       // --- FINAL BOOLEAN UNION ---
       let finalPath = textPath
       const toUnion = [...stickPaths]
@@ -522,8 +540,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           let needsBridging = true
           let bridgeAttempts = 0
           const MAX_BRIDGE_ATTEMPTS = 30
-          // Minimum bridge width: 6px ≈ 1.9mm at 10" output — narrow but survivable
-          const MIN_BRIDGE_PX = 6
+          // Minimum bridge width: 4px ≈ 1.3mm at 10" output — hairline but survivable
+          const MIN_BRIDGE_PX = 4
 
           while (needsBridging && bridgeAttempts < MAX_BRIDGE_ATTEMPTS) {
             bridgeAttempts++
@@ -546,14 +564,16 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               const dx = mainNearest.x - contourNearest.x
               const dy = mainNearest.y - contourNearest.y
               const dist = Math.sqrt(dx * dx + dy * dy)
-              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(10, contour.bounds.width * 0.4))
+              // Keep bridges thin — max 6px so micro-bridges don't create visible blocks
+              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(6, contour.bounds.width * 0.2))
 
               let bridge
               if (dist < 1) {
+                // Nearly-touching: just a tiny 4×4 dot to nudge the union
                 const bx = (contourNearest.x + mainNearest.x) / 2
                 const by = (contourNearest.y + mainNearest.y) / 2
                 bridge = new scope.Path.Rectangle(
-                  new scope.Rectangle(bx - bridgeWidth, by - bridgeWidth, bridgeWidth * 2, bridgeWidth * 2)
+                  new scope.Rectangle(bx - 2, by - 2, 4, 4)
                 )
               } else {
                 const nx = -dy / dist * bridgeWidth / 2
@@ -673,7 +693,29 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     storeRef.current.selectAsset(null)
   }, [getCanvasPoint])
 
+  const handleStickMouseDown = useCallback((e, handleId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const pt = getCanvasPoint(e)
+    const s = storeRef.current.state
+    const origPct = handleId === 's1' ? s.stick1X : s.stick2X
+    stickDragRef.current = { active: true, id: handleId, startX: pt.x, origPct }
+  }, [getCanvasPoint])
+
   const handleMouseMove = useCallback((e) => {
+    // Stick handle drag
+    if (stickDragRef.current.active) {
+      const pt = getCanvasPoint(e)
+      const { id, startX, origPct } = stickDragRef.current
+      const { spanW } = stickLayoutRef.current
+      if (spanW > 0) {
+        const deltaPct = ((pt.x - startX) / spanW) * 100
+        const newPct = Math.round(Math.max(5, Math.min(95, origPct + deltaPct)))
+        storeRef.current.update(id === 's1' ? { stick1X: newPct } : { stick2X: newPct })
+      }
+      return
+    }
+    // Asset drag
     if (!dragRef.current.active) return
     const pt = getCanvasPoint(e)
     storeRef.current.updateAsset(dragRef.current.assetId, {
@@ -682,7 +724,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     })
   }, [getCanvasPoint])
 
-  const handleMouseUp = useCallback(() => { dragRef.current.active = false }, [])
+  const handleMouseUp = useCallback(() => {
+    dragRef.current.active = false
+    stickDragRef.current.active = false
+  }, [])
 
   const handleDragOver = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }, [])
 
@@ -762,14 +807,14 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       <div
         className="relative rounded-2xl shadow-xl border border-gray-200 bg-white overflow-hidden flex-shrink-0"
         style={{ width: CANVAS_W, height: CANVAS_H }}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
       >
         <canvas
           ref={canvasRef}
           className="cursor-crosshair"
           onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
         />
 
         {fontLoading && (
@@ -806,10 +851,26 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           </div>
         )}
 
+        {/* Stick drag handles — draggable circles that reposition each stick */}
+        {stickHandlePos.map((h) => (
+          <div
+            key={h.id}
+            className="absolute z-10 cursor-ew-resize select-none"
+            style={{ left: h.x - 10, top: h.y - 10, width: 20, height: 20 }}
+            onMouseDown={(e) => handleStickMouseDown(e, h.id)}
+          >
+            {/* Outer ring */}
+            <div className="w-5 h-5 rounded-full bg-amber-400/70 border-2 border-white shadow-lg flex items-center justify-center">
+              {/* Inner dot */}
+              <div className="w-1.5 h-1.5 rounded-full bg-white" />
+            </div>
+          </div>
+        ))}
+
         <CanvasDimensions store={store} />
 
         <div className="absolute top-3 right-3 text-[10px] text-gray-400 bg-white/90 px-2 py-0.5 rounded-full border border-gray-100">
-          Drag assets to reposition
+          Drag assets · drag ● to move sticks
         </div>
       </div>
     </div>
