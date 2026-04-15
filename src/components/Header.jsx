@@ -1,6 +1,6 @@
 import React from 'react'
 
-export function Header({ onExport, onCheck, isConnected }) {
+export function Header({ onExport, onCheck, onAutoFit, isConnected }) {
   return (
     <header className="h-13 bg-white border-b border-gray-100 flex items-center justify-between px-5 flex-shrink-0 shadow-sm">
       {/* Brand */}
@@ -31,6 +31,20 @@ export function Header({ onExport, onCheck, isConnected }) {
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isConnected ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
           {isConnected ? 'One Piece' : 'Gaps Found'}
+        </button>
+
+        {/* Auto Fit */}
+        <button
+          onClick={onAutoFit}
+          title="Automatically balance font size, bar, and sticks for the best-looking result"
+          className="h-8 px-3 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 bg-gradient-to-r from-sky-50 to-violet-50 text-violet-700 hover:from-sky-100 hover:to-violet-100 ring-1 ring-violet-200"
+        >
+          {/* Wand icon */}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/>
+            <path d="M5 3l14 14" opacity="0.3"/>
+          </svg>
+          Auto Fit
         </button>
 
         {/* Divider */}

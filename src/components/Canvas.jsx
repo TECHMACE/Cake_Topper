@@ -794,6 +794,62 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     checkConnections: () => {
       storeRef.current.update({ isConnected: connectedRef.current })
     },
+
+    autoFit: () => {
+      const s = storeRef.current.state
+      const font = loadedFont
+      if (!font || !s.text.trim()) return
+
+      const lines = s.text.trim().split('\n').filter(l => l.length > 0)
+
+      // ── 1. Ideal font size: widest line fills ~72% of canvas ──────────────
+      const TARGET_W = CANVAS_W * 0.72
+      const REF_SIZE = 100
+      const widths = lines.map(l => getTextMetrics(font, l, REF_SIZE, s.letterSpacing).width)
+      const maxW = Math.max(...widths.filter(Boolean))
+      let fontSize = s.fontSize
+      if (maxW > 0) {
+        fontSize = Math.round((TARGET_W / maxW) * REF_SIZE)
+        fontSize = Math.max(40, Math.min(210, fontSize))
+      }
+
+      // ── 2. Bar proportions — slim and elegant ──────────────────────────────
+      // Height ~9% of font size; bite = half bar height so it welds cleanly
+      const barHeight = Math.max(8, Math.round(fontSize * 0.09))
+      const barOffset = -Math.round(barHeight * 0.5)
+
+      // ── 3. Shape padding for circle/rect/diamond connectors ───────────────
+      const shapePadding = Math.max(12, Math.round(fontSize * 0.18))
+
+      // ── 4. Line height — for multi-line, lines should gently overlap ──────
+      const lineHeight = lines.length > 1 ? 0.88 : 1.05
+
+      // ── 5. Sticks — symmetric, widths scale with font size ────────────────
+      const stick1X = s.stickCount === 1 ? 50 : 21
+      const stick2X = 79
+      const stickWidth = Math.max(10, Math.round(fontSize * 0.14))
+      const stickLength = Math.max(220, Math.min(380, Math.round(fontSize * 2.6)))
+
+      // ── 6. Letter spacing — keep user value, just clamp extremes ─────────
+      const letterSpacing = Math.max(-2, Math.min(8, s.letterSpacing))
+
+      storeRef.current.update({
+        fontSize,
+        lineHeight,
+        letterSpacing,
+        textX: 0,
+        textY: 0,
+        baselineHeight: barHeight,
+        baselineOffset: barOffset,
+        baseShapePadding: shapePadding,
+        stick1X,
+        stick2X,
+        stick1Y: 0,
+        stick2Y: 0,
+        stickWidth,
+        stickLength,
+      })
+    },
   }))
 
   return (

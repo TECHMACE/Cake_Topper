@@ -54,9 +54,13 @@ export default function App() {
     if (canvasRef.current?.checkConnections) canvasRef.current.checkConnections()
   }, [])
 
+  const handleAutoFit = useCallback(() => {
+    if (canvasRef.current?.autoFit) canvasRef.current.autoFit()
+  }, [])
+
   return (
     <div className="h-screen flex flex-col bg-[#f0f2f7] overflow-hidden">
-      <Header onExport={handleExport} onCheck={handleCheckConnections} isConnected={store.state.isConnected} />
+      <Header onExport={handleExport} onCheck={handleCheckConnections} onAutoFit={handleAutoFit} isConnected={store.state.isConnected} />
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Left Panel — tab navigation + content */}
