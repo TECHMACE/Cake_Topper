@@ -16,6 +16,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   const dragRef = useRef({ active: false, assetId: null, startX: 0, startY: 0, origX: 0, origY: 0 })
   const [loadedFont, setLoadedFont] = useState(null)
   const [fontLoading, setFontLoading] = useState(false)
+  const [cutWarnings, setCutWarnings] = useState([])
 
   const { state } = store
 
@@ -368,8 +369,6 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           baselinePath.fillColor = FILL
         } else {
           const barY = textBounds.bottom - overlapAmount + state.baselineOffset
-          // Extend bar 24px beyond letters on each side — gives the topper
-          // a solid "shelf" that looks like a real acrylic/wood base.
           const overhang = Math.max(24, barHeight * 1.5)
           baselinePath = new scope.Path.Rectangle(
             new scope.Rectangle(
@@ -481,7 +480,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         }
       }
 
-      const stickPaths = [makeStick(state.stick1X, state.stick1Y || 0)]
+      const stickPaths = []
+      if (state.stickCount >= 1) stickPaths.push(makeStick(state.stick1X, state.stick1Y || 0))
       if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X, state.stick2Y || 0))
 
       // --- FINAL BOOLEAN UNION ---
@@ -507,12 +507,23 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       if (finalPath) {
         finalPath.fillColor = FILL
+        // nonzero prevents evenodd "white holes" where paths overlap
+        // (e.g. icon placed on letter, or letter expansion touching adjacent letter)
+        finalPath.fillRule = 'nonzero'
 
         // --- AUTO-BRIDGE DISCONNECTED PARTS ---
+        // Bridges need to be ≥ 6px (~1.9mm at 10") to survive cutting.
+        // Track max bridge distance: small gaps (< 15px) are just letter-curve
+        // micro-gaps and fine; large gaps (≥ 15px) produce dangerously thin bridges.
+        let autoBridgesAdded = 0
+        let maxBridgeDist = 0
+
         if (finalPath.className === 'CompoundPath' && finalPath.children) {
           let needsBridging = true
           let bridgeAttempts = 0
           const MAX_BRIDGE_ATTEMPTS = 30
+          // Minimum bridge width: 6px ≈ 1.9mm at 10" output — narrow but survivable
+          const MIN_BRIDGE_PX = 6
 
           while (needsBridging && bridgeAttempts < MAX_BRIDGE_ATTEMPTS) {
             bridgeAttempts++
@@ -535,7 +546,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               const dx = mainNearest.x - contourNearest.x
               const dy = mainNearest.y - contourNearest.y
               const dist = Math.sqrt(dx * dx + dy * dy)
-              const bridgeWidth = Math.max(2, Math.min(4, contour.bounds.width * 0.4))
+              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(10, contour.bounds.width * 0.4))
 
               let bridge
               if (dist < 1) {
@@ -565,6 +576,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
                 bridge.remove()
                 finalPath = united
                 finalPath.fillColor = FILL
+                finalPath.fillRule = 'nonzero'
+                autoBridgesAdded++
+                if (dist > maxBridgeDist) maxBridgeDist = dist
                 needsBridging = true
                 break
               } catch {
@@ -589,10 +603,31 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           finalPath.dashArray = [8, 4]
         }
 
+        // --- CUT SAFETY WARNINGS ---
+        // Physical scale: at 10" output, CANVAS_W px spans 254mm
+        const mmPerPx = (state.outputWidthInches * 25.4) / CANVAS_W
+        const MIN_SAFE_MM = 1.5  // 1.5mm minimum for acrylic/wood cutting
+        const newWarnings = []
+
+        if (connType === 'baseline' && state.baselineHeight * mmPerPx < MIN_SAFE_MM) {
+          newWarnings.push(`Baseline bar is ${(state.baselineHeight * mmPerPx).toFixed(1)}mm — minimum safe width is ${MIN_SAFE_MM}mm`)
+        }
+        if (state.stickCount > 0 && state.stickWidth * mmPerPx < MIN_SAFE_MM) {
+          newWarnings.push(`Sticks are ${(state.stickWidth * mmPerPx).toFixed(1)}mm wide — may snap during cutting`)
+        }
+        if (autoBridgesAdded > 0 && maxBridgeDist >= 15) {
+          const isMultiLine = text.split('\n').filter(l => l.length > 0).length > 1
+          const bridgeHint = isMultiLine && connType === 'baseline'
+            ? 'Lines not touching — reduce Line Height (Text tab) or switch to a Shape connector'
+            : `${autoBridgesAdded} thin auto-bridge${autoBridgesAdded > 1 ? 's' : ''} added — enable a Bar or Shape connector for stronger joints`
+          newWarnings.push(bridgeHint)
+        }
+
         if (connectedRef.current !== connected) {
           connectedRef.current = connected
           setTimeout(() => storeRef.current.update({ isConnected: connected }), 0)
         }
+        setTimeout(() => setCutWarnings(newWarnings), 0)
       }
 
       // --- SELECTION INDICATOR ---
@@ -740,6 +775,34 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         {fontLoading && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-violet-100 text-violet-700 text-xs px-3 py-1 rounded-full shadow-sm whitespace-nowrap">
             Loading font outlines…
+          </div>
+        )}
+
+        {/* Disconnection hint — contextual based on connection mode */}
+        {!store.state.isConnected && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 text-[11px] text-red-700 shadow-sm flex items-center gap-1.5 whitespace-nowrap">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            {store.state.connectionType === 'none'
+              ? 'Pieces floating — try ↑ Letter Spacing or enable a connector in Structure'
+              : 'Parts disconnected — widen the connector or adjust spacing'}
+          </div>
+        )}
+
+        {/* Cut-safety warnings */}
+        {cutWarnings.length > 0 && (
+          <div className="absolute top-3 left-3 flex flex-col gap-1 max-w-[260px]">
+            {cutWarnings.map((w, i) => (
+              <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 text-[10px] text-amber-700 flex items-start gap-1.5 shadow-sm leading-tight">
+                <svg className="flex-shrink-0 mt-px" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                {w}
+              </div>
+            ))}
           </div>
         )}
 

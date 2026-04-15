@@ -11,7 +11,7 @@ const DEFAULT_STATE = {
   fontWeight: DEFAULT_FONT.weight || '400',
   fontSize: 100,         // ~1.25" at 10" output — chunky and readable
   letterSpacing: 2,
-  lineHeight: 1.15,
+  lineHeight: 0.9,   // 0.9 makes multi-line letters touch, keeping bar-connected designs clean
   textX: 0,
   textY: 0,
   arcAmount: 0, // -100 to 100: negative = valley, positive = arch over

@@ -185,8 +185,8 @@ export function SupportPanel({ store }) {
         {/* Stick Count */}
         <div className="mb-3">
           <label className="text-xs text-gray-500 mb-1.5 block">Number of Sticks</label>
-          <div className="flex gap-2">
-            {[1, 2].map((n) => (
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map((n) => (
               <button
                 key={n}
                 onClick={() => update({ stickCount: n })}
@@ -196,14 +196,20 @@ export function SupportPanel({ store }) {
                     : 'bg-gray-50 text-gray-600 hover:bg-gray-100 ring-1 ring-transparent'
                 }`}
               >
-                {n} Stick{n > 1 ? 's' : ''}
+                {n === 0 ? 'None' : n === 1 ? '1 Stick' : '2 Sticks'}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Tip Shape */}
-        <div className="mb-4">
+        {state.stickCount === 0 && (
+          <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 leading-relaxed">
+            No sticks — design must be self-supporting or use a different display method.
+          </p>
+        )}
+
+        {/* Tip Shape + dimensions + positions — only visible when sticks exist */}
+        {state.stickCount > 0 && (<><div className="mb-4">
           <label className="text-xs text-gray-500 mb-1.5 block">Tip Shape</label>
           <div className="flex gap-1.5">
             {[
@@ -351,6 +357,7 @@ export function SupportPanel({ store }) {
             </div>
           </>
         )}
+      </>)}
       </div>
 
       <div className="h-px bg-gray-100" />
