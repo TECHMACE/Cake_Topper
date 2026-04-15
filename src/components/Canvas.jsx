@@ -1,52 +1,81 @@
-import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react'
+import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo, useState } from 'react'
 import paper from 'paper'
+import { loadFont, textToSvgPath, textToGlyphPaths, getTextMetrics } from '../fontLoader'
 
-const CANVAS_W = 800
-const CANVAS_H = 600
+const CANVAS_W = 900   // wider to give margins for baseline bar overhang
+const CANVAS_H = 580   // taller to show long sticks comfortably
 
 const Canvas = forwardRef(function Canvas({ store }, ref) {
   const canvasRef = useRef(null)
+  const wrapRef = useRef(null)
   const scopeRef = useRef(null)
   const connectedRef = useRef(true)
   const storeRef = useRef(store)
   storeRef.current = store
 
   const dragRef = useRef({ active: false, assetId: null, startX: 0, startY: 0, origX: 0, origY: 0 })
+  const [loadedFont, setLoadedFont] = useState(null)
+  const [fontLoading, setFontLoading] = useState(false)
 
   const { state } = store
 
+  // Helper to get canvas coordinate from mouse event, accounting for CSS scaling
+  const getCanvasPoint = useCallback((e) => {
+    const rect = canvasRef.current.getBoundingClientRect()
+    const scaleX = CANVAS_W / rect.width
+    const scaleY = CANVAS_H / rect.height
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    }
+  }, [])
+
+  // Load the opentype.js font whenever font selection changes
+  useEffect(() => {
+    setFontLoading(true)
+    setLoadedFont(null)
+    loadFont(state.fontName, state.fontWeight || '400')
+      .then((font) => { setLoadedFont(font); setFontLoading(false) })
+      .catch(() => { setLoadedFont(null); setFontLoading(false) })
+  }, [state.fontName, state.fontWeight])
+
+  // Stable render key
   const renderKey = useMemo(() => JSON.stringify({
-    t: state.text, ff: state.fontFamily, fw: state.fontWeight,
+    t: state.text, fn: state.fontName, fw: state.fontWeight,
     fs: state.fontSize, ls: state.letterSpacing, lh: state.lineHeight,
-    tx: state.textX, ty: state.textY, pa: state.placedAssets,
+    tx: state.textX, ty: state.textY, arc: state.arcAmount, pa: state.placedAssets,
     be: state.baselineEnabled, bh: state.baselineHeight, bo: state.baselineOffset,
     sc: state.stickCount, s1: state.stick1X, s2: state.stick2X,
     sw: state.stickWidth, sl: state.stickLength, st: state.stickTip,
     sg: state.showGrid, sa: state.selectedAssetId,
-  }), [state.text, state.fontFamily, state.fontWeight, state.fontSize, state.letterSpacing,
-    state.lineHeight, state.textX, state.textY, state.placedAssets,
+    ow: state.outputWidthInches, pc: state.previewColor,
+    fl: loadedFont ? 'yes' : 'no',
+  }), [state.text, state.fontName, state.fontWeight, state.fontSize, state.letterSpacing,
+    state.lineHeight, state.textX, state.textY, state.arcAmount, state.placedAssets,
     state.baselineEnabled, state.baselineHeight, state.baselineOffset,
     state.stickCount, state.stick1X, state.stick2X, state.stickWidth, state.stickLength,
-    state.stickTip, state.showGrid, state.selectedAssetId])
+    state.stickTip, state.showGrid, state.selectedAssetId, state.outputWidthInches,
+    state.previewColor, loadedFont])
 
-  // Initialize Paper.js with PaperScope
+  // Init Paper.js
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-
-    // Use PaperScope for isolation
+    // Paper.js setup() reads the canvas's *CSS* size to determine its
+    // coordinate space, then scales the backing buffer by DPR.
+    // We must pin the CSS size BEFORE calling setup so Paper.js gets the
+    // right 800×560 coordinate space regardless of the containing layout.
+    canvas.style.cssText = `width:${CANVAS_W}px;height:${CANVAS_H}px;display:block;cursor:crosshair;`
     const scope = new paper.PaperScope()
     scope.setup(canvas)
-    scope.view.viewSize = new scope.Size(CANVAS_W, CANVAS_H)
+    // Paper.js has now locked the coordinate space to CANVAS_W x CANVAS_H.
+    // Do NOT change canvas style or call viewSize after this.
     scopeRef.current = scope
-
-    return () => {
-      scope.remove()
-      scopeRef.current = null
-    }
+    window.__paperScope = scope
+    return () => { scope.remove(); scopeRef.current = null; window.__paperScope = null }
   }, [])
 
-  // MAIN RENDER
+  // ---- MAIN RENDER ----
   useEffect(() => {
     const scope = scopeRef.current
     if (!scope) return
@@ -55,88 +84,234 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       scope.activate()
       scope.project.clear()
 
-      const DARK = new scope.Color('#1e1b4b')
+      const FILL = new scope.Color(state.previewColor || '#1e1b4b')
+      const WARN = new scope.Color('#ef4444')
       const centerX = CANVAS_W / 2 + state.textX
-      const centerY = CANVAS_H / 2 - 80 + state.textY
+      // Position text in upper-centre so sticks can extend well below
+      const centerY = CANVAS_H * 0.32 + state.textY
+
+      // --- DECORATIVE CAKE HINT ---
+      // Draw a soft cake silhouette at the very bottom of the canvas so users
+      // can visualise the topper sitting on a real cake tier.
+      const bgLayer = new scope.Layer()
+      bgLayer.name = 'bg'
+      {
+        const cakeTop = CANVAS_H - 48
+        const cake = new scope.Path.Rectangle(
+          new scope.Rectangle(40, cakeTop, CANVAS_W - 80, 48),
+          new scope.Size(10, 10) // corner radius
+        )
+        cake.fillColor = new scope.Color('#fdf2e9')
+        cake.strokeColor = new scope.Color('#f0cba8')
+        cake.strokeWidth = 1.5
+        // Frosting top squiggle (simple scallop line)
+        const scallop = new scope.Path()
+        scallop.moveTo(new scope.Point(40, cakeTop + 6))
+        for (let sx = 40; sx <= CANVAS_W - 80; sx += 20) {
+          scallop.cubicCurveTo(
+            new scope.Point(sx + 5, cakeTop - 2),
+            new scope.Point(sx + 15, cakeTop - 2),
+            new scope.Point(sx + 20, cakeTop + 6)
+          )
+        }
+        scallop.strokeColor = new scope.Color('#f0cba8')
+        scallop.strokeWidth = 2
+        scallop.fillColor = new scope.Color('#fff7ed')
+      }
 
       // --- GRID ---
       if (state.showGrid) {
         const gridLayer = new scope.Layer()
         gridLayer.name = 'grid'
         for (let x = 0; x <= CANVAS_W; x += 20) {
-          const line = new scope.Path.Line(new scope.Point(x, 0), new scope.Point(x, CANVAS_H))
-          line.strokeColor = new scope.Color(x % 100 === 0 ? '#ddd' : '#eee')
-          line.strokeWidth = x % 100 === 0 ? 0.5 : 0.3
+          const l = new scope.Path.Line(new scope.Point(x, 0), new scope.Point(x, CANVAS_H))
+          l.strokeColor = new scope.Color(x % 100 === 0 ? '#e2e8f0' : '#f1f5f9')
+          l.strokeWidth = x % 100 === 0 ? 0.6 : 0.3
         }
         for (let y = 0; y <= CANVAS_H; y += 20) {
-          const line = new scope.Path.Line(new scope.Point(0, y), new scope.Point(CANVAS_W, y))
-          line.strokeColor = new scope.Color(y % 100 === 0 ? '#ddd' : '#eee')
-          line.strokeWidth = y % 100 === 0 ? 0.5 : 0.3
+          const l = new scope.Path.Line(new scope.Point(0, y), new scope.Point(CANVAS_W, y))
+          l.strokeColor = new scope.Color(y % 100 === 0 ? '#e2e8f0' : '#f1f5f9')
+          l.strokeWidth = y % 100 === 0 ? 0.6 : 0.3
         }
+        // Center cross
+        const hLine = new scope.Path.Line(new scope.Point(CANVAS_W / 2 - 12, CANVAS_H * 0.32), new scope.Point(CANVAS_W / 2 + 12, CANVAS_H * 0.32))
+        hLine.strokeColor = new scope.Color('#c4b5fd')
+        hLine.strokeWidth = 1
+        const vLine = new scope.Path.Line(new scope.Point(CANVAS_W / 2, CANVAS_H * 0.32 - 12), new scope.Point(CANVAS_W / 2, CANVAS_H * 0.32 + 12))
+        vLine.strokeColor = new scope.Color('#c4b5fd')
+        vLine.strokeWidth = 1
       }
 
       // --- DESIGN LAYER ---
       const designLayer = new scope.Layer()
       designLayer.name = 'design'
 
-      // --- TEXT ---
-      const textItems = []
+      // --- TEXT as real vector outlines via opentype.js ---
+      let textPath = null
+      let textBounds = null
+
       const text = state.text.trim()
-      if (text) {
-        const lines = text.split('\n').filter((l) => l.length > 0)
+      if (text && loadedFont) {
+        const lines = text.split('\n').filter(l => l.length > 0)
         const lineHeightPx = state.fontSize * state.lineHeight
+        const allLinePaths = []
+        const arc = state.arcAmount || 0
+
+        lines.forEach((line, lineIdx) => {
+          const metrics = getTextMetrics(loadedFont, line, state.fontSize, state.letterSpacing)
+          const startX = centerX - metrics.width / 2
+          const baselineY = centerY + lineIdx * lineHeightPx
+
+          if (arc === 0) {
+            const { pathData } = textToSvgPath(
+              loadedFont, line, state.fontSize,
+              startX, baselineY, state.letterSpacing
+            )
+            if (pathData) {
+              try {
+                const linePath = new scope.CompoundPath(pathData)
+                linePath.fillColor = FILL
+                linePath.fillRule = 'evenodd'
+                allLinePaths.push(linePath)
+              } catch (e) { console.warn('Flat text path failed:', line, e) }
+            }
+          } else {
+            const { glyphs, totalWidth } = textToGlyphPaths(
+              loadedFont, line, state.fontSize, state.letterSpacing
+            )
+            if (totalWidth > 0) {
+              const archesUp = arc > 0
+              const arcHeight = (Math.abs(arc) / 100) * totalWidth * 0.35
+              const R = (totalWidth * totalWidth + 4 * arcHeight * arcHeight) / (8 * arcHeight)
+              const halfAngle = Math.asin(totalWidth / (2 * R))
+              const cx = centerX
+              const cy = archesUp ? (baselineY + (R - arcHeight)) : (baselineY - (R - arcHeight))
+
+              glyphs.forEach((g) => {
+                if (!g.pathData) return
+                const glyphCenterX = g.x + g.advance / 2
+                const t = (glyphCenterX - totalWidth / 2) / (totalWidth / 2)
+                const angle = t * halfAngle
+                const arcX = cx + R * Math.sin(angle)
+                const arcY = archesUp ? (cy - R * Math.cos(angle)) : (cy + R * Math.cos(angle))
+                const rotDeg = (archesUp ? angle : -angle) * 180 / Math.PI
+                try {
+                  const glyphPath = new scope.CompoundPath(g.pathData)
+                  glyphPath.fillRule = 'evenodd'
+                  glyphPath.fillColor = FILL
+                  glyphPath.translate(new scope.Point(-g.advance / 2, 0))
+                  glyphPath.rotate(rotDeg, new scope.Point(0, 0))
+                  glyphPath.translate(new scope.Point(arcX, arcY))
+                  allLinePaths.push(glyphPath)
+                } catch (e) { console.warn('Arc glyph path failed:', g.char, e) }
+              })
+            }
+          }
+        })
+
+        if (allLinePaths.length > 0) {
+          textPath = allLinePaths[0]
+          for (let i = 1; i < allLinePaths.length; i++) {
+            try {
+              const u = textPath.unite(allLinePaths[i])
+              textPath.remove()
+              allLinePaths[i].remove()
+              textPath = u
+            } catch { /* keep going */ }
+          }
+          textPath.fillColor = FILL
+          textBounds = textPath.bounds.clone()
+        }
+      } else if (text && !loadedFont) {
+        // Fallback: show PointText while font loads
         const mc = document.createElement('canvas')
         const ctx = mc.getContext('2d')
         ctx.font = `${state.fontWeight} ${state.fontSize}px ${state.fontFamily}`
+        const measured = ctx.measureText(text)
+        const tw = measured.width
 
-        lines.forEach((line, lineIdx) => {
-          const yOff = lineIdx * lineHeightPx
-          const chars = Array.from(line)
+        const pt = new scope.PointText(new scope.Point(centerX - tw / 2, centerY))
+        pt.content = text
+        pt.fontFamily = state.fontFamily
+        pt.fontWeight = state.fontWeight
+        pt.fontSize = state.fontSize
+        pt.fillColor = new scope.Color('#cbd5e1')
 
-          let totalW = 0
-          chars.forEach((ch, i) => {
-            totalW += ctx.measureText(ch).width + (i < chars.length - 1 ? state.letterSpacing : 0)
-          })
-
-          let xPos = centerX - totalW / 2
-
-          chars.forEach((ch, i) => {
-            if (ch === ' ') {
-              xPos += ctx.measureText(ch).width + state.letterSpacing
-              return
-            }
-            const cw = ctx.measureText(ch).width
-            const pt = new scope.PointText(new scope.Point(xPos, centerY + yOff + state.fontSize * 0.35))
-            pt.content = ch
-            pt.fontFamily = state.fontFamily
-            pt.fontWeight = state.fontWeight
-            pt.fontSize = state.fontSize
-            pt.fillColor = DARK
-            textItems.push(pt)
-            xPos += cw + (i < chars.length - 1 ? state.letterSpacing : 0)
-          })
-        })
+        const loadingText = new scope.PointText(new scope.Point(centerX, centerY + state.fontSize + 12))
+        loadingText.content = 'Loading font outlines…'
+        loadingText.fontSize = 11
+        loadingText.justification = 'center'
+        loadingText.fillColor = new scope.Color('#94a3b8')
       }
 
-      // Text bounds
-      let textBounds = null
-      textItems.forEach((p) => {
-        if (!textBounds) textBounds = p.bounds.clone()
-        else textBounds = textBounds.unite(p.bounds)
-      })
-
-      // --- BASELINE BAR ---
+      // --- BASELINE CONNECTOR BAR ---
       let baselinePath = null
+      const isArced = (state.arcAmount || 0) !== 0
       if (state.baselineEnabled && textBounds) {
-        baselinePath = new scope.Path.Rectangle(
-          new scope.Rectangle(
-            textBounds.left - 4,
-            textBounds.bottom + state.baselineOffset - state.baselineHeight / 2,
-            textBounds.width + 8,
-            state.baselineHeight
+        const barHeight = state.baselineHeight
+        const overlapAmount = textBounds.height * 0.30
+
+        if (isArced) {
+          const arc = state.arcAmount
+          const archesUp = arc > 0
+          const metrics = getTextMetrics(loadedFont, state.text.trim().split('\n')[0], state.fontSize, state.letterSpacing)
+          const totalWidth = metrics.width
+          const arcHeight = (Math.abs(arc) / 100) * totalWidth * 0.35
+          const R = (totalWidth * totalWidth + 4 * arcHeight * arcHeight) / (8 * arcHeight)
+          const halfAngle = Math.asin(totalWidth / (2 * R))
+          const cx = centerX
+          const cy = archesUp ? (centerY + (R - arcHeight)) : (centerY - (R - arcHeight))
+          const rOuter = R - overlapAmount + state.baselineOffset
+          const rInner = rOuter + Math.max(barHeight, 12) // arc bar at least 12px thick
+          const angPad = halfAngle * 0.05
+          const a0 = -halfAngle - angPad
+          const a1 = halfAngle + angPad
+          const steps = 48
+          const outerPts = []
+          const innerPts = []
+          for (let i = 0; i <= steps; i++) {
+            const a = a0 + (a1 - a0) * (i / steps)
+            const rA = archesUp ? rOuter : rInner
+            const rB = archesUp ? rInner : rOuter
+            const sinA = Math.sin(a)
+            const cosA = Math.cos(a)
+            outerPts.push([cx + rA * sinA, archesUp ? cy - rA * cosA : cy + rA * cosA])
+            innerPts.push([cx + rB * sinA, archesUp ? cy - rB * cosA : cy + rB * cosA])
+          }
+          baselinePath = new scope.Path({
+            segments: [...outerPts, ...innerPts.reverse()],
+            closed: true,
+          })
+          baselinePath.fillColor = FILL
+        } else {
+          const barY = textBounds.bottom - overlapAmount + state.baselineOffset
+          // Extend bar 24px beyond letters on each side — gives the topper
+          // a solid "shelf" that looks like a real acrylic/wood base.
+          const overhang = Math.max(24, barHeight * 1.5)
+          baselinePath = new scope.Path.Rectangle(
+            new scope.Rectangle(
+              textBounds.left - overhang,
+              barY,
+              textBounds.width + overhang * 2,
+              barHeight
+            )
           )
-        )
-        baselinePath.fillColor = DARK
+          baselinePath.fillColor = FILL
+        }
+
+        if (textPath) {
+          try {
+            const united = textPath.unite(baselinePath)
+            textPath.remove()
+            baselinePath.remove()
+            textPath = united
+            textPath.fillColor = FILL
+            textBounds = textPath.bounds.clone()
+            baselinePath = null
+          } catch {
+            // Keep them separate if union fails
+          }
+        }
       }
 
       // --- ASSETS ---
@@ -150,49 +325,74 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           p.scale(baseScale * asset.scale)
           p.position = new scope.Point(centerX + asset.x, centerY + asset.y)
           if (asset.rotation) p.rotate(asset.rotation)
-          p.fillColor = DARK
-          assetPaths.push(p)
-        } catch { /* skip */ }
+          p.fillColor = FILL
+          assetPaths.push({ path: p, id: asset.id })
+        } catch { /* skip bad paths */ }
       })
 
-      // --- STICKS ---
-      const contentEls = [...(baselinePath ? [baselinePath] : []), ...assetPaths]
-      let bottomY = textBounds ? textBounds.bottom : centerY + 30
-      if (baselinePath) bottomY = Math.max(bottomY, baselinePath.bounds.bottom)
-      contentEls.forEach((el) => { if (el.bounds) bottomY = Math.max(bottomY, el.bounds.bottom) })
+      // --- WELD ASSETS TO TEXT ---
+      if (textPath) {
+        for (const ap of assetPaths) {
+          if (textPath.bounds.intersects(ap.path.bounds) ||
+              textPath.bounds.expand(10).intersects(ap.path.bounds)) {
+            try {
+              if (!textPath.bounds.intersects(ap.path.bounds)) {
+                const bridgeX = (textPath.bounds.center.x + ap.path.bounds.center.x) / 2
+                const bridgeY = Math.min(textPath.bounds.bottom, ap.path.bounds.bottom)
+                const bridge = new scope.Path.Rectangle(
+                  new scope.Rectangle(bridgeX - 2, bridgeY - 4, 4, 8)
+                )
+                bridge.fillColor = FILL
+                const temp = textPath.unite(bridge)
+                textPath.remove()
+                bridge.remove()
+                textPath = temp
+              }
+              const united = textPath.unite(ap.path)
+              textPath.remove()
+              ap.path.remove()
+              textPath = united
+              textPath.fillColor = FILL
+            } catch {
+              // Keep separate if union fails
+            }
+          }
+        }
+        textBounds = textPath.bounds.clone()
+      }
 
+      // --- SUPPORT STICKS ---
+      let bottomY = textBounds ? textBounds.bottom : centerY + 30
       let leftX = textBounds ? textBounds.left : centerX - 100
       let rightX = textBounds ? textBounds.right : centerX + 100
-      contentEls.forEach((el) => {
-        if (el.bounds) { leftX = Math.min(leftX, el.bounds.left); rightX = Math.max(rightX, el.bounds.right) }
-      })
       const spanW = rightX - leftX
 
       function makeStick(xPct) {
         const sx = leftX + (xPct / 100) * spanW
         const hw = state.stickWidth / 2
+        const stickTop = bottomY - Math.max(8, state.baselineHeight * 2)
 
         if (state.stickTip === 'pointed') {
           const bH = state.stickLength * 0.75
-          const body = new scope.Path.Rectangle(new scope.Rectangle(sx - hw, bottomY - 2, state.stickWidth, bH))
-          body.fillColor = DARK
+          const body = new scope.Path.Rectangle(new scope.Rectangle(sx - hw, stickTop, state.stickWidth, bH))
+          body.fillColor = FILL
           const tri = new scope.Path({
-            segments: [[sx - hw, bottomY - 2 + bH], [sx, bottomY - 2 + state.stickLength], [sx + hw, bottomY - 2 + bH]],
+            segments: [[sx - hw, stickTop + bH], [sx, stickTop + state.stickLength], [sx + hw, stickTop + bH]],
             closed: true,
           })
-          tri.fillColor = DARK
-          try { const u = body.unite(tri); body.remove(); tri.remove(); u.fillColor = DARK; return u }
+          tri.fillColor = FILL
+          try { const u = body.unite(tri); body.remove(); tri.remove(); u.fillColor = FILL; return u }
           catch { tri.remove(); return body }
         } else if (state.stickTip === 'rounded') {
-          const body = new scope.Path.Rectangle(new scope.Rectangle(sx - hw, bottomY - 2, state.stickWidth, state.stickLength - hw))
-          body.fillColor = DARK
-          const circ = new scope.Path.Circle(new scope.Point(sx, bottomY - 2 + state.stickLength - hw), hw)
-          circ.fillColor = DARK
-          try { const u = body.unite(circ); body.remove(); circ.remove(); u.fillColor = DARK; return u }
+          const body = new scope.Path.Rectangle(new scope.Rectangle(sx - hw, stickTop, state.stickWidth, state.stickLength - hw))
+          body.fillColor = FILL
+          const circ = new scope.Path.Circle(new scope.Point(sx, stickTop + state.stickLength - hw), hw)
+          circ.fillColor = FILL
+          try { const u = body.unite(circ); body.remove(); circ.remove(); u.fillColor = FILL; return u }
           catch { circ.remove(); return body }
         } else {
-          const r = new scope.Path.Rectangle(new scope.Rectangle(sx - hw, bottomY - 2, state.stickWidth, state.stickLength))
-          r.fillColor = DARK
+          const r = new scope.Path.Rectangle(new scope.Rectangle(sx - hw, stickTop, state.stickWidth, state.stickLength))
+          r.fillColor = FILL
           return r
         }
       }
@@ -200,31 +400,118 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const stickPaths = [makeStick(state.stick1X)]
       if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X))
 
-      // --- BOOLEAN UNION ---
-      const vectorPaths = [...(baselinePath ? [baselinePath] : []), ...assetPaths, ...stickPaths]
-      if (vectorPaths.length > 1) {
-        let result = vectorPaths[0]
-        for (let i = 1; i < vectorPaths.length; i++) {
+      // --- FINAL BOOLEAN UNION ---
+      let finalPath = textPath
+      const toUnion = [...stickPaths]
+      assetPaths.forEach((ap) => { if (!ap.path.removed) toUnion.push(ap.path) })
+      if (baselinePath && !baselinePath.removed) toUnion.push(baselinePath)
+
+      for (const p of toUnion) {
+        if (finalPath) {
           try {
-            const u = result.unite(vectorPaths[i])
-            result.remove(); vectorPaths[i].remove()
-            result = u
-          } catch { /* skip */ }
+            const u = finalPath.unite(p)
+            finalPath.remove()
+            p.remove()
+            finalPath = u
+          } catch {
+            // Keep trying
+          }
+        } else {
+          finalPath = p
         }
-        result.fillColor = DARK
-        result.name = 'united-structure'
-      } else if (vectorPaths.length === 1) {
-        vectorPaths[0].name = 'united-structure'
       }
 
-      // --- CONNECTION CHECK ---
-      const connected = state.baselineEnabled && textBounds != null
-      if (connectedRef.current !== connected) {
-        connectedRef.current = connected
-        setTimeout(() => storeRef.current.update({ isConnected: connected }), 0)
+      if (finalPath) {
+        finalPath.fillColor = FILL
+
+        // --- AUTO-BRIDGE DISCONNECTED PARTS ---
+        if (finalPath.className === 'CompoundPath' && finalPath.children) {
+          let needsBridging = true
+          let bridgeAttempts = 0
+          const MAX_BRIDGE_ATTEMPTS = 30
+
+          while (needsBridging && bridgeAttempts < MAX_BRIDGE_ATTEMPTS) {
+            bridgeAttempts++
+            needsBridging = false
+
+            if (finalPath.className !== 'CompoundPath' || !finalPath.children) break
+
+            const outerContours = finalPath.children.filter(c => c.clockwise)
+            if (outerContours.length <= 1) break
+
+            const mainBody = outerContours.reduce((a, b) => a.bounds.area > b.bounds.area ? a : b)
+
+            for (const contour of outerContours) {
+              if (contour === mainBody) continue
+
+              const detachedCenter = contour.bounds.center
+              const mainNearest = mainBody.getNearestPoint(detachedCenter)
+              const contourNearest = contour.getNearestPoint(mainNearest)
+
+              const dx = mainNearest.x - contourNearest.x
+              const dy = mainNearest.y - contourNearest.y
+              const dist = Math.sqrt(dx * dx + dy * dy)
+              const bridgeWidth = Math.max(2, Math.min(4, contour.bounds.width * 0.4))
+
+              let bridge
+              if (dist < 1) {
+                const bx = (contourNearest.x + mainNearest.x) / 2
+                const by = (contourNearest.y + mainNearest.y) / 2
+                bridge = new scope.Path.Rectangle(
+                  new scope.Rectangle(bx - bridgeWidth, by - bridgeWidth, bridgeWidth * 2, bridgeWidth * 2)
+                )
+              } else {
+                const nx = -dy / dist * bridgeWidth / 2
+                const ny = dx / dist * bridgeWidth / 2
+                bridge = new scope.Path({
+                  segments: [
+                    [contourNearest.x - nx, contourNearest.y - ny],
+                    [contourNearest.x + nx, contourNearest.y + ny],
+                    [mainNearest.x + nx, mainNearest.y + ny],
+                    [mainNearest.x - nx, mainNearest.y - ny],
+                  ],
+                  closed: true,
+                })
+              }
+              bridge.fillColor = FILL
+
+              try {
+                const united = finalPath.unite(bridge)
+                finalPath.remove()
+                bridge.remove()
+                finalPath = united
+                finalPath.fillColor = FILL
+                needsBridging = true
+                break
+              } catch {
+                bridge.remove()
+              }
+            }
+          }
+        }
+
+        finalPath.name = 'final-design'
+
+        // Check connectivity
+        let connected = true
+        if (finalPath.className === 'CompoundPath' && finalPath.children) {
+          const outerContours = finalPath.children.filter(c => c.clockwise)
+          if (outerContours.length > 1) connected = false
+        }
+
+        if (!connected) {
+          finalPath.strokeColor = WARN
+          finalPath.strokeWidth = 2
+          finalPath.dashArray = [8, 4]
+        }
+
+        if (connectedRef.current !== connected) {
+          connectedRef.current = connected
+          setTimeout(() => storeRef.current.update({ isConnected: connected }), 0)
+        }
       }
 
-      // --- SELECTION ---
+      // --- SELECTION INDICATOR ---
       if (state.selectedAssetId) {
         const asset = state.placedAssets.find((a) => a.id === state.selectedAssetId)
         if (asset) {
@@ -232,8 +519,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
             new scope.Rectangle(
               centerX + asset.x - 50 * asset.scale,
               centerY + asset.y - 50 * asset.scale,
-              100 * asset.scale,
-              100 * asset.scale
+              100 * asset.scale, 100 * asset.scale
             )
           )
           r.strokeColor = new scope.Color('#7c3aed')
@@ -249,17 +535,13 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     }
   }, [renderKey])
 
-  // --- DRAG ASSETS ON CANVAS ---
-  const getCanvasPoint = useCallback((e) => {
-    const rect = canvasRef.current.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
-  }, [])
+  // --- DRAG ASSETS ---
 
   const handleMouseDown = useCallback((e) => {
     const pt = getCanvasPoint(e)
     const s = storeRef.current.state
     const cx = CANVAS_W / 2 + s.textX
-    const cy = CANVAS_H / 2 - 80 + s.textY
+    const cy = CANVAS_H * 0.32 + s.textY
     for (let i = s.placedAssets.length - 1; i >= 0; i--) {
       const a = s.placedAssets[i]
       const rad = 50 * a.scale
@@ -289,37 +571,42 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     e.preventDefault()
     try {
       const data = JSON.parse(e.dataTransfer.getData('application/json'))
-      const rect = canvasRef.current.getBoundingClientRect()
-      storeRef.current.addAsset(data, e.clientX - rect.left - CANVAS_W / 2, e.clientY - rect.top - CANVAS_H / 2 + 80)
-    } catch { /* invalid drop */ }
-  }, [])
+      const pt = getCanvasPoint(e)
+      storeRef.current.addAsset(data, pt.x - CANVAS_W / 2, pt.y - CANVAS_H * 0.32)
+    } catch { /* invalid */ }
+  }, [getCanvasPoint])
 
-  // --- EXPORT ---
+  // --- EXPORT: Single-path SVG ---
   useImperativeHandle(ref, () => ({
     exportSVG: () => {
       const scope = scopeRef.current
       if (!scope) return
       scope.activate()
-      const designLayer = scope.project.layers.find((l) => l.name === 'design')
+      const designLayer = scope.project.layers.find(l => l.name === 'design')
       if (!designLayer) return
 
-      const exportGroup = new scope.Group()
-      designLayer.children.forEach((child) => {
-        if (child.name !== 'selection') exportGroup.addChild(child.clone())
-      })
-      if (exportGroup.children.length === 0) { exportGroup.remove(); return }
+      const finalDesign = designLayer.children.find(c => c.name === 'final-design')
+      if (!finalDesign) return
 
-      const bounds = exportGroup.bounds
+      const exportPath = finalDesign.clone()
+      const bounds = exportPath.bounds
       const pad = 10
-      const svgStr = exportGroup.exportSVG({ asString: true })
+      const svgStr = exportPath.exportSVG({ asString: true })
+
       const w = bounds.width + pad * 2
       const h = bounds.height + pad * 2
+      const targetWidthIn = storeRef.current.state.outputWidthInches || 10
+      const mmPerPx = (targetWidthIn * 25.4) / bounds.width
+      const widthMm = w * mmPerPx
+      const heightMm = h * mmPerPx
       const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      viewBox="${bounds.x - pad} ${bounds.y - pad} ${w} ${h}"
-     width="${w}mm" height="${h}mm" fill="#000000" stroke="none">
+     width="${widthMm.toFixed(2)}mm" height="${heightMm.toFixed(2)}mm"
+     fill="#000000" stroke="none">
   ${svgStr}
 </svg>`
+
       const blob = new Blob([svg], { type: 'image/svg+xml' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -327,7 +614,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       a.download = `cake-topper-${Date.now()}.svg`
       a.click()
       URL.revokeObjectURL(url)
-      exportGroup.remove()
+      exportPath.remove()
     },
     checkConnections: () => {
       storeRef.current.update({ isConnected: connectedRef.current })
@@ -335,20 +622,95 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   }))
 
   return (
-    <div className="w-full h-full flex items-center justify-center bg-[#f8f9fc] overflow-hidden"
-      onDragOver={handleDragOver} onDrop={handleDrop}>
-      <div className="relative rounded-xl shadow-lg border border-gray-200 bg-white overflow-hidden">
-        <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H}
-          className="block cursor-crosshair"
-          onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
+    <div
+      ref={wrapRef}
+      className="absolute inset-0 flex items-center justify-center bg-[#f0f2f7] overflow-auto p-5"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Canvas wrapper — fixed coordinate space, scrollable on small viewports */}
+      <div
+        className="relative rounded-2xl shadow-xl border border-gray-200 bg-white overflow-hidden flex-shrink-0"
+        style={{ width: CANVAS_W, height: CANVAS_H }}
+      >
+        <canvas
+          ref={canvasRef}
+          className="cursor-crosshair"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
         />
-        <div className="absolute bottom-3 left-3 text-[10px] text-gray-400 bg-white/80 px-2 py-0.5 rounded">
-          {CANVAS_W} × {CANVAS_H} px — Drag assets to reposition
+
+        {fontLoading && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-violet-100 text-violet-700 text-xs px-3 py-1 rounded-full shadow-sm whitespace-nowrap">
+            Loading font outlines…
+          </div>
+        )}
+
+        <CanvasDimensions store={store} />
+
+        <div className="absolute top-3 right-3 text-[10px] text-gray-400 bg-white/90 px-2 py-0.5 rounded-full border border-gray-100">
+          Drag assets to reposition
         </div>
       </div>
     </div>
   )
 })
+
+function CanvasDimensions({ store }) {
+  const { state } = store
+  const [dims, setDims] = useState(null)
+
+  useEffect(() => {
+    let raf
+    const tick = () => {
+      const scope = window.__paperScope
+      if (scope && scope.project) {
+        const designLayer = scope.project.layers.find((l) => l.name === 'design')
+        const final = designLayer && designLayer.children.find((c) => c.name === 'final-design')
+        if (final) {
+          const px = final.bounds
+          const inPerPx = state.outputWidthInches / px.width
+          const widthIn = state.outputWidthInches
+          const heightIn = px.height * inPerPx
+          setDims({ widthIn, heightIn, widthMm: widthIn * 25.4, heightMm: heightIn * 25.4 })
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [state.outputWidthInches])
+
+  return (
+    <div className="absolute bottom-3 left-3 flex items-center gap-2">
+      <div className="text-[10px] text-gray-600 bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 font-medium tabular-nums shadow-sm">
+        {dims ? (
+          <>
+            <span className="text-violet-600 font-semibold">Cut size:</span>{' '}
+            {dims.widthIn.toFixed(2)}″ × {dims.heightIn.toFixed(2)}″{' '}
+            <span className="text-gray-400">({Math.round(dims.widthMm)}×{Math.round(dims.heightMm)}mm)</span>
+          </>
+        ) : (
+          <span className="text-gray-400">Measuring…</span>
+        )}
+      </div>
+      <label className="text-[10px] bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1 shadow-sm">
+        <span className="text-gray-500">Width:</span>
+        <input
+          type="number"
+          min={2}
+          max={36}
+          step={0.5}
+          value={state.outputWidthInches}
+          onChange={(e) => store.update({ outputWidthInches: parseFloat(e.target.value) || 10 })}
+          className="w-10 text-xs text-gray-800 outline-none bg-transparent"
+        />
+        <span className="text-gray-400">in</span>
+      </label>
+    </div>
+  )
+}
 
 export { Canvas }

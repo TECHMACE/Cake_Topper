@@ -9,27 +9,36 @@ const DEFAULT_STATE = {
   fontName: DEFAULT_FONT.name,
   fontFamily: DEFAULT_FONT.family,
   fontWeight: DEFAULT_FONT.weight || '400',
-  fontSize: 72,
-  letterSpacing: 0,
-  lineHeight: 1.2,
+  fontSize: 100,         // ~1.25" at 10" output — chunky and readable
+  letterSpacing: 2,
+  lineHeight: 1.15,
   textX: 0,
   textY: 0,
+  arcAmount: 0, // -100 to 100: negative = valley, positive = arch over
+
+  // Output sizing (for laser/Cricut export)
+  outputWidthInches: 10, // target cut width in inches
 
   // Placed assets on canvas
   placedAssets: [],
 
   // Baseline connector bar (connects all letters)
+  // Real toppers have a bar ~4–6mm thick — at 10" output, 1px ≈ 0.32mm
   baselineEnabled: true,
-  baselineHeight: 3,
-  baselineOffset: 0,
+  baselineHeight: 18,    // ~5.7mm — solid, visible bar
+  baselineOffset: -8,    // bite 8px up into letter bottoms for a strong weld
 
   // Support sticks
+  // Standard bamboo skewer is ~3mm dia; cake picks are 4–6mm wide
   stickCount: 2,
-  stick1X: 30,
-  stick2X: 70,
-  stickWidth: 6,
-  stickLength: 60,
-  stickTip: 'pointed', // 'flat', 'rounded', 'pointed'
+  stick1X: 28,
+  stick2X: 72,
+  stickWidth: 16,        // ~5mm — properly grippable
+  stickLength: 260,      // ~82mm — deep enough to anchor in a tall cake
+  stickTip: 'pointed',   // 'flat', 'rounded', 'pointed'
+
+  // Preview color (changes the visual preview; export is always single fill)
+  previewColor: '#1e1b4b',
 
   // Canvas
   showGrid: true,

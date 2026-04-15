@@ -54,6 +54,17 @@ body {
   background: #94a3b8;
 }
 
+/* ── Responsive Paper.js canvas ────────────────────────────────────────────
+   Paper.js forcefully sets inline style width/height on the canvas element.
+   This rule uses !important to override that, letting CSS control the display
+   size while Paper.js keeps its full-resolution coordinate buffer internally.
+   ────────────────────────────────────────────────────────────────────────── */
+canvas.paper-canvas {
+  width: 100% !important;
+  height: auto !important;
+  display: block !important;
+}
+
 /* Range slider styling */
 input[type="range"] {
   -webkit-appearance: none;
