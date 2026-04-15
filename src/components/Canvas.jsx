@@ -801,37 +801,56 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       if (!font || !s.text.trim()) return
 
       const lines = s.text.trim().split('\n').filter(l => l.length > 0)
+      const isMultiLine = lines.length > 1
 
-      // ── 1. Ideal font size: widest line fills ~72% of canvas ──────────────
-      const TARGET_W = CANVAS_W * 0.72
+      // ── 1. Ideal font size ─────────────────────────────────────────────────
+      // For multi-line, each line targets 65% of canvas width — leaves breathing
+      // room and keeps the design from feeling cramped once lines are touching.
+      // Single-line can fill 74%.
+      const TARGET_W = CANVAS_W * (isMultiLine ? 0.65 : 0.74)
       const REF_SIZE = 100
-      const widths = lines.map(l => getTextMetrics(font, l, REF_SIZE, s.letterSpacing).width)
+      const letterSpacing = Math.max(-2, Math.min(8, s.letterSpacing))
+      const widths = lines.map(l => getTextMetrics(font, l, REF_SIZE, letterSpacing).width)
       const maxW = Math.max(...widths.filter(Boolean))
       let fontSize = s.fontSize
       if (maxW > 0) {
         fontSize = Math.round((TARGET_W / maxW) * REF_SIZE)
-        fontSize = Math.max(40, Math.min(210, fontSize))
+        fontSize = Math.max(40, Math.min(200, fontSize))
       }
 
-      // ── 2. Bar proportions — slim and elegant ──────────────────────────────
-      // Height ~9% of font size; bite = half bar height so it welds cleanly
-      const barHeight = Math.max(8, Math.round(fontSize * 0.09))
-      const barOffset = -Math.round(barHeight * 0.5)
+      // ── 2. Line height from actual font metrics ────────────────────────────
+      // A fixed ratio like 0.88 doesn't account for different fonts' real
+      // ascender/descender depths. We use opentype metrics to guarantee the
+      // visual bottom of line 1 overlaps the visual top of line 2 by ~14px,
+      // so the lines physically weld without needing auto-bridges.
+      //
+      // Logic: visual line span ≈ capHeight (above baseline) + descVisual (below)
+      //   capHeight   ≈ 70% of ascender ratio
+      //   descVisual  ≈ 60% of |descender| ratio
+      // lineHeight that causes 14px overlap = capRatio + descVisRatio + 14/fontSize
+      let lineHeight = 1.05
+      if (isMultiLine) {
+        const upm = font.unitsPerEm || 1000
+        const ascRatio  = (font.ascender  || upm * 0.8)  / upm
+        const dscRatio  = Math.abs(font.descender || upm * 0.2) / upm
+        const capRatio      = ascRatio * 0.70   // typical cap-height fraction
+        const descVisRatio  = dscRatio * 0.60   // typical descender visual depth
+        const OVERLAP_PX    = 14                // px overlap → clean weld
+        lineHeight = Math.max(0.55, Math.min(0.82, capRatio + descVisRatio + OVERLAP_PX / fontSize))
+      }
 
-      // ── 3. Shape padding for circle/rect/diamond connectors ───────────────
+      // ── 3. Bar proportions ─────────────────────────────────────────────────
+      const barHeight = Math.max(10, Math.round(fontSize * 0.10))
+      const barOffset = -Math.round(barHeight * 0.55)   // bite just over half-bar
+
+      // ── 4. Shape padding (circle / rect / diamond connectors) ─────────────
       const shapePadding = Math.max(12, Math.round(fontSize * 0.18))
 
-      // ── 4. Line height — for multi-line, lines should gently overlap ──────
-      const lineHeight = lines.length > 1 ? 0.88 : 1.05
-
-      // ── 5. Sticks — symmetric, widths scale with font size ────────────────
-      const stick1X = s.stickCount === 1 ? 50 : 21
-      const stick2X = 79
-      const stickWidth = Math.max(10, Math.round(fontSize * 0.14))
-      const stickLength = Math.max(220, Math.min(380, Math.round(fontSize * 2.6)))
-
-      // ── 6. Letter spacing — keep user value, just clamp extremes ─────────
-      const letterSpacing = Math.max(-2, Math.min(8, s.letterSpacing))
+      // ── 5. Sticks — symmetric, scale with font size ────────────────────────
+      const stick1X    = s.stickCount === 1 ? 50 : 22
+      const stick2X    = 78
+      const stickWidth = Math.max(10, Math.round(fontSize * 0.13))
+      const stickLength = Math.max(220, Math.min(360, Math.round(fontSize * 2.4)))
 
       storeRef.current.update({
         fontSize,
