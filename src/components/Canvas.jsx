@@ -359,7 +359,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       // ── Baseline bar ──────────────────────────────────────────────────────
       if (connType === 'baseline' && textBounds) {
         const barHeight = state.baselineHeight
-        const overlapAmount = textBounds.height * 0.30
+        // Clamp overlap to a single-line fraction so bar never cuts through
+        // the middle of multi-line text. Max 28% of ONE line's font size.
+        const overlapAmount = Math.min(state.fontSize * 0.28, 36)
 
         if (isArced) {
           const arc = state.arcAmount
@@ -562,7 +564,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         if (finalPath.className === 'CompoundPath' && finalPath.children) {
           let needsBridging = true
           let bridgeAttempts = 0
-          const MAX_BRIDGE_ATTEMPTS = 30
+          // Plaque mode has many counter-form islands (insides of O, B, D, P, etc.)
+          const MAX_BRIDGE_ATTEMPTS = connType === 'rectangle' ? 80 : 30
           // Minimum bridge width: 4px ≈ 1.3mm at 10" output — hairline but survivable
           const MIN_BRIDGE_PX = 4
 
@@ -658,10 +661,11 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         if (state.stickCount > 0 && state.stickWidth * mmPerPx < MIN_SAFE_MM) {
           newWarnings.push(`Sticks are ${(state.stickWidth * mmPerPx).toFixed(1)}mm wide — may snap during cutting`)
         }
-        if (autoBridgesAdded > 0 && maxBridgeDist >= 15) {
+        if (autoBridgesAdded > 0 && maxBridgeDist >= 15 && connType !== 'rectangle') {
+          // Plaque/rectangle mode always has counter-form bridges (insides of O, B, etc.) — expected, not a warning
           const isMultiLine = text.split('\n').filter(l => l.length > 0).length > 1
           const bridgeHint = isMultiLine && connType === 'baseline'
-            ? 'Lines not touching — reduce Line Height (Text tab) or switch to a Shape connector'
+            ? 'Lines not touching — reduce Line Height (Text tab) or hit Auto Fit'
             : `${autoBridgesAdded} thin auto-bridge${autoBridgesAdded > 1 ? 's' : ''} added — enable a Bar or Shape connector for stronger joints`
           newWarnings.push(bridgeHint)
         }
@@ -841,30 +845,27 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         fontSize = Math.max(40, Math.min(200, fontSize))
       }
 
-      // ── 2. Line height — visually nice, not trying to force connection ────────
-      // For multi-line designs, trying to connect lines through letter overlap
-      // is fragile — depends entirely on which letters happen to be at the
-      // intersection zone. The correct solution (used by every professional
-      // cake topper file) is a backing shape that holds everything together.
-      // We set a clean readable line height and let the connector do its job.
-      const lineHeight = isMultiLine ? 0.82 : 1.05
+      // ── 2. Line height — force descenders to physically overlap next line ────
+      // For multi-line, we need the descenders of line 0 (the "y","p" of "Happy")
+      // to physically intersect the ascenders of line 1 ("B","d" of "Birthday").
+      // lineHeight = (capRatio + descRatio) puts bboxes exactly touching.
+      // Going 18% below that guarantees real path intersection for bold fonts.
+      // 0.62 has been tested to work for typical bold/chunky fonts at this canvas size.
+      const lineHeight = isMultiLine ? 0.62 : 1.05
 
-      // ── 3. Connector — multi-line always uses rectangle backing ───────────────
-      // A bar only holds the BOTTOM line. For multi-line, the only reliable way
-      // to keep every letter connected is a solid backing plate behind all the text.
-      // This is the standard used in every commercial cake topper SVG file.
-      // Single-line keeps whatever the user had (bar, shape, etc).
-      const connectionType = isMultiLine ? 'rectangle' : s.connectionType
+      // ── 3. Connector — keep user's choice, just fix proportions ──────────────
+      // Don't override connectionType — the user picks bar/circle/rect/diamond.
+      // For multi-line + baseline, the bar sits at the bottom of line 2 (fixed
+      // by the overlapAmount clamp in the render loop). The physical letter
+      // overlap above connects the lines.
+      const connectionType = s.connectionType
 
-      // Bar (single-line only): slim pill, proportional to font size
+      // Bar: slim pill, proportional to font size
       const barHeight = Math.max(10, Math.round(fontSize * 0.10))
       const barOffset = -Math.round(barHeight * 0.55)
 
-      // Rectangle padding: tight on sides, generous top/bottom to grip both lines
-      // Extra top padding so the shape bites well into the top line too
-      const shapePadding = isMultiLine
-        ? Math.max(16, Math.round(fontSize * 0.22))
-        : Math.max(12, Math.round(fontSize * 0.18))
+      // Shape padding
+      const shapePadding = Math.max(12, Math.round(fontSize * 0.18))
 
       // ── 4. Sticks — symmetric, scale with font size ────────────────────────
       const stick1X    = s.stickCount === 1 ? 50 : 22
