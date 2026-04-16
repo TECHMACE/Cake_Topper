@@ -458,13 +458,14 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       function makeStick(xPct, yOff = 0) {
         const sx = leftX + (xPct / 100) * spanW
         const hw = state.stickWidth / 2
-        // Stick top must reach above the bar top so they weld together.
-        // Bar top = textBounds.bottom + baselineOffset + 0 ≈ bottom - 6px.
-        // So we need overlapDepth > |baselineOffset| + barHeight + margin.
+        // Stick overlaps just enough to weld to the bar/frame — half the bar height.
+        // This keeps the stick top below the letters so it doesn't visually
+        // poke up into the text, while still creating a solid bond.
+        const barH = state.baselineHeight || 12
+        const frameThickness = Math.max(8, Math.round((state.baseShapePadding || 20) * 0.38))
         const overlapDepth = connType === 'none' ? 0
-          : connType === 'baseline'
-            ? Math.abs(state.baselineOffset || -6) + state.baselineHeight + 20
-            : (state.baseShapePadding || 20) + 20  // for frames: go through the frame bottom border
+          : connType === 'baseline' ? Math.round(barH * 0.6)
+          : frameThickness + 4
         const stickTop = bottomY - overlapDepth + yOff
 
         if (state.stickTip === 'pointed') {
@@ -832,21 +833,24 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       // 0.62 has been tested to work for typical bold/chunky fonts at this canvas size.
       const lineHeight = isMultiLine ? 0.62 : 1.05
 
-      // ── 3. Proportions — preserve user's connectionType completely ───────────
-      // Auto Fit never touches connectionType. User picked rectangle/circle/bar?
-      // That stays. We only fix sizes and positions.
-      const barHeight    = Math.max(10, Math.round(fontSize * 0.10))
-      const barOffset    = -Math.round(barHeight * 0.55)
-      const shapePadding = Math.max(14, Math.round(fontSize * 0.20))
+      // ── 3. Proportions — preserve connectionType, fix sizes ─────────────────
+      const barHeight = Math.max(10, Math.round(fontSize * 0.10))
+      const barOffset = -Math.round(barHeight * 0.55)
 
-      // ── 4. Sticks — symmetric, scale with font size ────────────────────────
+      // For frame connectors (circle/rect/diamond) use generous padding so the
+      // frame border is wide enough that every letter touches it — no gap errors.
+      // For baseline keep it proportional.
+      const connType = s.connectionType || 'baseline'
+      const shapePadding = (connType !== 'baseline' && connType !== 'none')
+        ? Math.max(22, Math.round(fontSize * 0.26))  // generous: wide frame border = guaranteed contact
+        : Math.max(14, Math.round(fontSize * 0.20))
+
+      // ── 4. Sticks ─────────────────────────────────────────────────────────
       const stick1X     = s.stickCount === 1 ? 50 : 22
       const stick2X     = 78
       const stickWidth  = Math.max(10, Math.round(fontSize * 0.13))
       const stickLength = Math.max(220, Math.min(360, Math.round(fontSize * 2.4)))
 
-      // Only push lineHeight when it will actually fix a real gap (multi-line baseline).
-      // For frame connectors, letter spacing is a style choice — leave it alone.
       const updates = {
         fontSize,
         letterSpacing,
@@ -862,7 +866,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         stickWidth,
         stickLength,
       }
-      if (isMultiLine && s.connectionType === 'baseline') {
+      // Only force lineHeight for multi-line baseline — frame modes don't need it
+      if (isMultiLine && connType === 'baseline') {
         updates.lineHeight = lineHeight
       }
       storeRef.current.update(updates)
@@ -988,8 +993,11 @@ function CanvasDimensions({ store }) {
           <span className="text-gray-400">Measuring…</span>
         )}
       </div>
-      <label className="text-[10px] bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1 shadow-sm">
-        <span className="text-gray-500">Width:</span>
+      <label
+        title="Set your desired cut width in inches — all dimensions (cut size, mm) scale to match. A 10″ topper is standard."
+        className="text-[10px] bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1 shadow-sm cursor-help"
+      >
+        <span className="text-gray-500">Cut width:</span>
         <input
           type="number"
           min={2}
@@ -997,7 +1005,8 @@ function CanvasDimensions({ store }) {
           step={0.5}
           value={state.outputWidthInches}
           onChange={(e) => store.update({ outputWidthInches: parseFloat(e.target.value) || 10 })}
-          className="w-10 text-xs text-gray-800 outline-none bg-transparent"
+          className="w-10 text-xs text-gray-800 outline-none bg-transparent cursor-text"
+          title=""
         />
         <span className="text-gray-400">in</span>
       </label>
