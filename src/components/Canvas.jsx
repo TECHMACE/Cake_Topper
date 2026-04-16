@@ -818,32 +818,38 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         fontSize = Math.max(40, Math.min(200, fontSize))
       }
 
-      // ── 2. Line height: test-render to measure the real gap ──────────────────
-      // Font metric estimates (ascender/descender ratios) are unreliable across
-      // fonts. Instead we actually render both lines at lineHeight=1.0 using
-      // Paper.js, measure the real gap between visual bottom of line 0 and
-      // visual top of line 1, then compute the lineHeight that gives 18px overlap.
-      //
-      // Math: gap(lh) = (lh - 1) × fontSize + gap(1.0)
-      //       for gap = -OVERLAP_PX: lh = 1 - (OVERLAP_PX + gap_at_1) / fontSize
-      let lineHeight = 0.68  // fallback if test render fails
+      // ── 2. Line height: binary search for physical path connection ────────────
+      // Bounding-box overlap is necessary but not sufficient — letters at the
+      // overlap zone may be in different X positions and still leave a gap.
+      // The ONLY reliable test is: unite both line paths and count outer contours.
+      // We binary search for the largest lineHeight where they unite into one piece,
+      // then back off by a tiny margin to guarantee a solid weld every time.
+      let lineHeight = 0.62  // safe fallback
       if (isMultiLine && scopeRef.current) {
-        try {
-          const scope = scopeRef.current
-          scope.activate()
+        const scope = scopeRef.current
+        scope.activate()
+        let lo = 0.42, hi = 0.92
+        for (let iter = 0; iter < 10; iter++) {
+          const mid = (lo + hi) / 2
           const { pathData: pd0 } = textToSvgPath(font, lines[0], fontSize, 0, 0, letterSpacing)
-          const { pathData: pd1 } = textToSvgPath(font, lines[1], fontSize, 0, fontSize, letterSpacing)
-          if (pd0 && pd1) {
+          const { pathData: pd1 } = textToSvgPath(font, lines[1], fontSize, 0, mid * fontSize, letterSpacing)
+          if (!pd0 || !pd1) break
+          let connected = false
+          try {
             const p0 = new scope.CompoundPath(pd0)
             const p1 = new scope.CompoundPath(pd1)
-            const gapAt1 = p1.bounds.top - p0.bounds.bottom  // positive = gap, negative = overlap
-            p0.remove()
-            p1.remove()
-            const OVERLAP_PX = 18
-            const computed = 1 - (OVERLAP_PX + gapAt1) / fontSize
-            lineHeight = Math.max(0.50, Math.min(0.80, computed))
-          }
-        } catch (_) { /* fall back to 0.68 */ }
+            const united = p0.unite(p1)
+            const outerCount = (united.className === 'CompoundPath')
+              ? united.children.filter(c => c.clockwise).length
+              : 1
+            connected = outerCount <= 1
+            p0.remove(); p1.remove(); united.remove()
+          } catch (_) { /* treat as disconnected */ }
+          if (connected) lo = mid   // connected → try higher (less overlap)
+          else           hi = mid   // disconnected → try lower (more overlap)
+        }
+        // lo = largest lineHeight that still connects; back off by 3% for safety margin
+        lineHeight = Math.max(0.42, lo - 0.03)
       }
 
       // ── 3. Bar proportions ─────────────────────────────────────────────────
