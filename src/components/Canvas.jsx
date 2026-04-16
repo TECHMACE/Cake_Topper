@@ -280,30 +280,43 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const connType = state.connectionType || 'baseline'
 
       // ── Backing shape (circle / rectangle / diamond) ──────────────────────
-      // These act as FOOTER CONNECTORS — positioned at the bottom of the text,
-      // overlapping just enough to weld onto the letters. Sticks attach below.
+      // Rectangle spans the FULL text bounds — this is the correct approach for
+      // multi-line text: a solid plate behind everything keeps every letter
+      // connected regardless of which letters happen to overlap.
+      // Circle and diamond remain footer-style (decorative single-line use).
       if (connType !== 'baseline' && connType !== 'none' && textBounds) {
         const pad = state.baseShapePadding || 20
         const cx = textBounds.center.x
-        const overlapY = textBounds.height * 0.28       // how deep into text the shape overlaps
-        const shapeTop = textBounds.bottom - overlapY + (state.baselineOffset || -8)
-        // Width spans full text width + side padding
-        const shapeHW = textBounds.width / 2 + pad      // half-width
-        // Height = padding-driven: small pad → thin bar-like, large pad → taller shape
-        const shapeHH = Math.max(20, pad * 1.2)         // half-height
         let shapePath = null
 
-        if (connType === 'circle') {
-          // Oval/ellipse footer
+        if (connType === 'rectangle') {
+          // Full backing plate: covers entire text bounds + padding on all sides
+          const sidePad = pad
+          const topPad  = Math.round(pad * 0.6)   // less top padding — letters poke above nicely
+          const botPad  = Math.round(pad * 0.9)   // slightly more bottom for the bar/stick weld
+          shapePath = new scope.Path.Rectangle(
+            new scope.Rectangle(
+              textBounds.left  - sidePad,
+              textBounds.top   - topPad,
+              textBounds.width + sidePad * 2,
+              textBounds.height + topPad + botPad,
+            ),
+            new scope.Size(10, 10)
+          )
+        } else if (connType === 'circle') {
+          // Oval footer connector
+          const overlapY = textBounds.height * 0.28
+          const shapeTop = textBounds.bottom - overlapY + (state.baselineOffset || -8)
+          const shapeHW = textBounds.width / 2 + pad
+          const shapeHH = Math.max(20, pad * 1.2)
           shapePath = new scope.Path.Ellipse(
             new scope.Rectangle(cx - shapeHW, shapeTop, shapeHW * 2, shapeHH * 2)
           )
-        } else if (connType === 'rectangle') {
-          shapePath = new scope.Path.Rectangle(
-            new scope.Rectangle(cx - shapeHW, shapeTop, shapeHW * 2, shapeHH * 2),
-            new scope.Size(8, 8)
-          )
         } else if (connType === 'diamond') {
+          const overlapY = textBounds.height * 0.28
+          const shapeTop = textBounds.bottom - overlapY + (state.baselineOffset || -8)
+          const shapeHW = textBounds.width / 2 + pad
+          const shapeHH = Math.max(20, pad * 1.2)
           const shapeCY = shapeTop + shapeHH
           shapePath = new scope.Path({
             segments: [
@@ -818,48 +831,32 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         fontSize = Math.max(40, Math.min(200, fontSize))
       }
 
-      // ── 2. Line height: binary search for physical path connection ────────────
-      // Bounding-box overlap is necessary but not sufficient — letters at the
-      // overlap zone may be in different X positions and still leave a gap.
-      // The ONLY reliable test is: unite both line paths and count outer contours.
-      // We binary search for the largest lineHeight where they unite into one piece,
-      // then back off by a tiny margin to guarantee a solid weld every time.
-      let lineHeight = 0.62  // safe fallback
-      if (isMultiLine && scopeRef.current) {
-        const scope = scopeRef.current
-        scope.activate()
-        let lo = 0.42, hi = 0.92
-        for (let iter = 0; iter < 10; iter++) {
-          const mid = (lo + hi) / 2
-          const { pathData: pd0 } = textToSvgPath(font, lines[0], fontSize, 0, 0, letterSpacing)
-          const { pathData: pd1 } = textToSvgPath(font, lines[1], fontSize, 0, mid * fontSize, letterSpacing)
-          if (!pd0 || !pd1) break
-          let connected = false
-          try {
-            const p0 = new scope.CompoundPath(pd0)
-            const p1 = new scope.CompoundPath(pd1)
-            const united = p0.unite(p1)
-            const outerCount = (united.className === 'CompoundPath')
-              ? united.children.filter(c => c.clockwise).length
-              : 1
-            connected = outerCount <= 1
-            p0.remove(); p1.remove(); united.remove()
-          } catch (_) { /* treat as disconnected */ }
-          if (connected) lo = mid   // connected → try higher (less overlap)
-          else           hi = mid   // disconnected → try lower (more overlap)
-        }
-        // lo = largest lineHeight that still connects; back off by 3% for safety margin
-        lineHeight = Math.max(0.42, lo - 0.03)
-      }
+      // ── 2. Line height — visually nice, not trying to force connection ────────
+      // For multi-line designs, trying to connect lines through letter overlap
+      // is fragile — depends entirely on which letters happen to be at the
+      // intersection zone. The correct solution (used by every professional
+      // cake topper file) is a backing shape that holds everything together.
+      // We set a clean readable line height and let the connector do its job.
+      const lineHeight = isMultiLine ? 0.82 : 1.05
 
-      // ── 3. Bar proportions ─────────────────────────────────────────────────
+      // ── 3. Connector — multi-line always uses rectangle backing ───────────────
+      // A bar only holds the BOTTOM line. For multi-line, the only reliable way
+      // to keep every letter connected is a solid backing plate behind all the text.
+      // This is the standard used in every commercial cake topper SVG file.
+      // Single-line keeps whatever the user had (bar, shape, etc).
+      const connectionType = isMultiLine ? 'rectangle' : s.connectionType
+
+      // Bar (single-line only): slim pill, proportional to font size
       const barHeight = Math.max(10, Math.round(fontSize * 0.10))
-      const barOffset = -Math.round(barHeight * 0.55)   // bite just over half-bar
+      const barOffset = -Math.round(barHeight * 0.55)
 
-      // ── 4. Shape padding (circle / rect / diamond connectors) ─────────────
-      const shapePadding = Math.max(12, Math.round(fontSize * 0.18))
+      // Rectangle padding: tight on sides, generous top/bottom to grip both lines
+      // Extra top padding so the shape bites well into the top line too
+      const shapePadding = isMultiLine
+        ? Math.max(16, Math.round(fontSize * 0.22))
+        : Math.max(12, Math.round(fontSize * 0.18))
 
-      // ── 5. Sticks — symmetric, scale with font size ────────────────────────
+      // ── 4. Sticks — symmetric, scale with font size ────────────────────────
       const stick1X    = s.stickCount === 1 ? 50 : 22
       const stick2X    = 78
       const stickWidth = Math.max(10, Math.round(fontSize * 0.13))
@@ -869,6 +866,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         fontSize,
         lineHeight,
         letterSpacing,
+        connectionType,
         textX: 0,
         textY: 0,
         baselineHeight: barHeight,
