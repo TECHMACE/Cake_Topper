@@ -832,29 +832,24 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       // 0.62 has been tested to work for typical bold/chunky fonts at this canvas size.
       const lineHeight = isMultiLine ? 0.62 : 1.05
 
-      // ── 3. Connector — keep user's choice, just fix proportions ──────────────
-      // Auto Fit always uses baseline — clean letter-forward topper.
-      // Circle/rect/diamond are style choices the user makes manually.
-      const connectionType = 'baseline'
-
-      // Bar: slim pill, proportional to font size
-      const barHeight = Math.max(10, Math.round(fontSize * 0.10))
-      const barOffset = -Math.round(barHeight * 0.55)
-
-      // Shape padding
-      const shapePadding = Math.max(12, Math.round(fontSize * 0.18))
+      // ── 3. Proportions — preserve user's connectionType completely ───────────
+      // Auto Fit never touches connectionType. User picked rectangle/circle/bar?
+      // That stays. We only fix sizes and positions.
+      const barHeight    = Math.max(10, Math.round(fontSize * 0.10))
+      const barOffset    = -Math.round(barHeight * 0.55)
+      const shapePadding = Math.max(14, Math.round(fontSize * 0.20))
 
       // ── 4. Sticks — symmetric, scale with font size ────────────────────────
-      const stick1X    = s.stickCount === 1 ? 50 : 22
-      const stick2X    = 78
-      const stickWidth = Math.max(10, Math.round(fontSize * 0.13))
+      const stick1X     = s.stickCount === 1 ? 50 : 22
+      const stick2X     = 78
+      const stickWidth  = Math.max(10, Math.round(fontSize * 0.13))
       const stickLength = Math.max(220, Math.min(360, Math.round(fontSize * 2.4)))
 
-      storeRef.current.update({
+      // Only push lineHeight when it will actually fix a real gap (multi-line baseline).
+      // For frame connectors, letter spacing is a style choice — leave it alone.
+      const updates = {
         fontSize,
-        lineHeight,
         letterSpacing,
-        connectionType,
         textX: 0,
         textY: 0,
         baselineHeight: barHeight,
@@ -866,7 +861,11 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         stick2Y: 0,
         stickWidth,
         stickLength,
-      })
+      }
+      if (isMultiLine && s.connectionType === 'baseline') {
+        updates.lineHeight = lineHeight
+      }
+      storeRef.current.update(updates)
     },
   }))
 
