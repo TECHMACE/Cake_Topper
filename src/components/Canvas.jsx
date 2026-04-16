@@ -279,89 +279,63 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const isArced = (state.arcAmount || 0) !== 0
       const connType = state.connectionType || 'baseline'
 
-      // ── Backing shape (circle / rectangle / diamond) ──────────────────────
-      // Rectangle spans the FULL text bounds — this is the correct approach for
-      // multi-line text: a solid plate behind everything keeps every letter
-      // connected regardless of which letters happen to overlap.
-      // Circle and diamond remain footer-style (decorative single-line use).
+      // ── Shape connectors — surrounding FRAMES centered on the text ──────────
+      // Each shape is an outer path with an inner cutout (a ring/border).
+      // The frame surrounds the text; letters that touch the inner edge weld
+      // to it automatically. Sticks attach at the bottom of the outer frame.
       if (connType !== 'baseline' && connType !== 'none' && textBounds) {
         const pad = state.baseShapePadding || 20
         const cx = textBounds.center.x
-        let shapePath = null
+        const cy = textBounds.center.y
+        // Frame border thickness proportional to padding
+        const ft = Math.max(8, Math.round(pad * 0.38))
+        let outerShape = null, innerShape = null
 
-        if (connType === 'rectangle') {
-          // Full backing plate: covers entire text bounds + padding on all sides
-          const sidePad = pad
-          const topPad  = Math.round(pad * 0.6)   // less top padding — letters poke above nicely
-          const botPad  = Math.round(pad * 0.9)   // slightly more bottom for the bar/stick weld
-          shapePath = new scope.Path.Rectangle(
-            new scope.Rectangle(
-              textBounds.left  - sidePad,
-              textBounds.top   - topPad,
-              textBounds.width + sidePad * 2,
-              textBounds.height + topPad + botPad,
-            ),
-            new scope.Size(10, 10)
-          )
-        } else if (connType === 'circle') {
-          // Oval footer connector
-          const overlapY = textBounds.height * 0.28
-          const shapeTop = textBounds.bottom - overlapY + (state.baselineOffset || -8)
-          const shapeHW = textBounds.width / 2 + pad
-          const shapeHH = Math.max(20, pad * 1.2)
-          shapePath = new scope.Path.Ellipse(
-            new scope.Rectangle(cx - shapeHW, shapeTop, shapeHW * 2, shapeHH * 2)
-          )
+        if (connType === 'circle') {
+          const rx = textBounds.width  / 2 + pad
+          const ry = textBounds.height / 2 + pad
+          outerShape = new scope.Path.Ellipse(new scope.Rectangle(cx - rx, cy - ry, rx * 2, ry * 2))
+          innerShape = new scope.Path.Ellipse(new scope.Rectangle(cx - rx + ft, cy - ry + ft, (rx - ft) * 2, (ry - ft) * 2))
+        } else if (connType === 'rectangle') {
+          const rx = textBounds.width  / 2 + pad
+          const ry = textBounds.height / 2 + pad
+          outerShape = new scope.Path.Rectangle(new scope.Rectangle(cx - rx, cy - ry, rx * 2, ry * 2), new scope.Size(12, 12))
+          innerShape = new scope.Path.Rectangle(new scope.Rectangle(cx - rx + ft, cy - ry + ft, (rx - ft) * 2, (ry - ft) * 2), new scope.Size(8, 8))
         } else if (connType === 'diamond') {
-          const overlapY = textBounds.height * 0.28
-          const shapeTop = textBounds.bottom - overlapY + (state.baselineOffset || -8)
-          const shapeHW = textBounds.width / 2 + pad
-          const shapeHH = Math.max(20, pad * 1.2)
-          const shapeCY = shapeTop + shapeHH
-          shapePath = new scope.Path({
-            segments: [
-              [cx,           shapeTop],
-              [cx + shapeHW, shapeCY],
-              [cx,           shapeTop + shapeHH * 2],
-              [cx - shapeHW, shapeCY],
-            ],
-            closed: true,
-          })
+          const hw = textBounds.width  / 2 + pad
+          const hh = textBounds.height / 2 + pad
+          outerShape = new scope.Path({ segments: [[cx, cy - hh], [cx + hw, cy], [cx, cy + hh], [cx - hw, cy]], closed: true })
+          innerShape = new scope.Path({ segments: [[cx, cy - hh + ft], [cx + hw - ft, cy], [cx, cy + hh - ft], [cx - hw + ft, cy]], closed: true })
         }
 
-        if (shapePath) {
-          shapePath.fillColor = FILL
-          if (textPath) {
-            try {
-              let result
-              if (connType === 'rectangle') {
-                // Plaque style: subtract text from plate → letter-shaped cutouts
-                // Letters appear as holes (you see through them), plate is the material
-                result = shapePath.subtract(textPath)
-                result.fillRule = 'evenodd'
-              } else {
-                // Circle / diamond: unite as footer connectors
-                result = textPath.unite(shapePath)
-                result.fillRule = 'nonzero'
-              }
-              textPath.remove(); shapePath.remove()
-              textPath = result
+        if (outerShape && innerShape) {
+          outerShape.fillColor = FILL
+          innerShape.fillColor = FILL
+          try {
+            const frame = outerShape.subtract(innerShape)
+            outerShape.remove(); innerShape.remove()
+            frame.fillColor = FILL
+            if (textPath) {
+              const u = textPath.unite(frame)
+              textPath.remove(); frame.remove()
+              textPath = u
               textPath.fillColor = FILL
               textBounds = textPath.bounds.clone()
-            } catch { shapePath.remove() }
-          } else {
-            textPath = shapePath
-            textBounds = shapePath.bounds.clone()
-          }
+            } else {
+              textPath = frame
+              textBounds = frame.bounds.clone()
+            }
+          } catch { outerShape.remove(); innerShape.remove() }
         }
       }
 
       // ── Baseline bar ──────────────────────────────────────────────────────
       if (connType === 'baseline' && textBounds) {
         const barHeight = state.baselineHeight
-        // Clamp overlap to a single-line fraction so bar never cuts through
-        // the middle of multi-line text. Max 28% of ONE line's font size.
-        const overlapAmount = Math.min(state.fontSize * 0.28, 36)
+        // overlapAmount=0: bar sits at textBounds.bottom + baselineOffset.
+        // baselineOffset (default -6) bites it just into the letter bottoms.
+        // A positive overlapAmount would raise the bar up into the text — wrong.
+        const overlapAmount = 0
 
         if (isArced) {
           const arc = state.arcAmount
@@ -484,7 +458,13 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       function makeStick(xPct, yOff = 0) {
         const sx = leftX + (xPct / 100) * spanW
         const hw = state.stickWidth / 2
-        const overlapDepth = connType === 'none' ? 0 : Math.max(8, state.baselineHeight * 2)
+        // Stick top must reach above the bar top so they weld together.
+        // Bar top = textBounds.bottom + baselineOffset + 0 ≈ bottom - 6px.
+        // So we need overlapDepth > |baselineOffset| + barHeight + margin.
+        const overlapDepth = connType === 'none' ? 0
+          : connType === 'baseline'
+            ? Math.abs(state.baselineOffset || -6) + state.baselineHeight + 20
+            : (state.baseShapePadding || 20) + 20  // for frames: go through the frame bottom border
         const stickTop = bottomY - overlapDepth + yOff
 
         if (state.stickTip === 'pointed') {
@@ -550,9 +530,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       if (finalPath) {
         finalPath.fillColor = FILL
-        // Plaque (rectangle subtract) uses evenodd so letter holes stay visible.
-        // Everything else uses nonzero to prevent white holes where paths overlap.
-        finalPath.fillRule = connType === 'rectangle' ? 'evenodd' : 'nonzero'
+        finalPath.fillRule = 'nonzero'
 
         // --- AUTO-BRIDGE DISCONNECTED PARTS ---
         // Bridges need to be ≥ 6px (~1.9mm at 10") to survive cutting.
@@ -661,12 +639,13 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         if (state.stickCount > 0 && state.stickWidth * mmPerPx < MIN_SAFE_MM) {
           newWarnings.push(`Sticks are ${(state.stickWidth * mmPerPx).toFixed(1)}mm wide — may snap during cutting`)
         }
-        if (autoBridgesAdded > 0 && maxBridgeDist >= 15 && connType !== 'rectangle') {
-          // Plaque/rectangle mode always has counter-form bridges (insides of O, B, etc.) — expected, not a warning
+        // Only warn if the design is STILL disconnected after all bridge attempts.
+        // If connected, bridges were micro-gaps that got fixed — no warning needed.
+        if (!connected) {
           const isMultiLine = text.split('\n').filter(l => l.length > 0).length > 1
           const bridgeHint = isMultiLine && connType === 'baseline'
-            ? 'Lines not touching — reduce Line Height (Text tab) or hit Auto Fit'
-            : `${autoBridgesAdded} thin auto-bridge${autoBridgesAdded > 1 ? 's' : ''} added — enable a Bar or Shape connector for stronger joints`
+            ? 'Lines not touching — reduce Line Height or hit Auto Fit'
+            : 'Parts disconnected — enable a Bar or Shape connector'
           newWarnings.push(bridgeHint)
         }
 
@@ -854,11 +833,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const lineHeight = isMultiLine ? 0.62 : 1.05
 
       // ── 3. Connector — keep user's choice, just fix proportions ──────────────
-      // Don't override connectionType — the user picks bar/circle/rect/diamond.
-      // For multi-line + baseline, the bar sits at the bottom of line 2 (fixed
-      // by the overlapAmount clamp in the render loop). The physical letter
-      // overlap above connects the lines.
-      const connectionType = s.connectionType
+      // Auto Fit always uses baseline — clean letter-forward topper.
+      // Circle/rect/diamond are style choices the user makes manually.
+      const connectionType = 'baseline'
 
       // Bar: slim pill, proportional to font size
       const barHeight = Math.max(10, Math.round(fontSize * 0.10))
