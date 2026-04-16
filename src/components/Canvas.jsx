@@ -333,9 +333,19 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           shapePath.fillColor = FILL
           if (textPath) {
             try {
-              const u = textPath.unite(shapePath)
+              let result
+              if (connType === 'rectangle') {
+                // Plaque style: subtract text from plate → letter-shaped cutouts
+                // Letters appear as holes (you see through them), plate is the material
+                result = shapePath.subtract(textPath)
+                result.fillRule = 'evenodd'
+              } else {
+                // Circle / diamond: unite as footer connectors
+                result = textPath.unite(shapePath)
+                result.fillRule = 'nonzero'
+              }
               textPath.remove(); shapePath.remove()
-              textPath = u
+              textPath = result
               textPath.fillColor = FILL
               textBounds = textPath.bounds.clone()
             } catch { shapePath.remove() }
@@ -538,9 +548,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       if (finalPath) {
         finalPath.fillColor = FILL
-        // nonzero prevents evenodd "white holes" where paths overlap
-        // (e.g. icon placed on letter, or letter expansion touching adjacent letter)
-        finalPath.fillRule = 'nonzero'
+        // Plaque (rectangle subtract) uses evenodd so letter holes stay visible.
+        // Everything else uses nonzero to prevent white holes where paths overlap.
+        finalPath.fillRule = connType === 'rectangle' ? 'evenodd' : 'nonzero'
 
         // --- AUTO-BRIDGE DISCONNECTED PARTS ---
         // Bridges need to be ≥ 6px (~1.9mm at 10") to survive cutting.
