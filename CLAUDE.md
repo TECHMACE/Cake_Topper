@@ -5,7 +5,7 @@
 cd /Users/andrewmace/Cake_Topper
 npm run dev          # starts Vite dev server at http://localhost:5173
 ```
-All active work is on `main`. The `claude/clever-sammet` branch has been merged in.
+All active work is on `main`.
 
 ---
 
@@ -241,10 +241,6 @@ Each asset entry:
 - "Width" label confusion → renamed to "Cut width"
 
 ---
-
-## Git Branches
-- `main` — active development branch, all features merged here
-- `claude/clever-sammet` — feature branch (merged into main, kept for reference)
 
 ## Running Locally
 ```bash
