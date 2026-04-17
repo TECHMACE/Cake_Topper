@@ -45,6 +45,9 @@ const DEFAULT_STATE = {
   // Preview color (changes the visual preview; export is always single fill)
   previewColor: '#1e1b4b',
 
+  // Per-letter drag offsets
+  letterOffsets: {},  // { "line0_char2": { x: 0, y: 0 }, ... }
+
   // Canvas
   showGrid: true,
   selectedAssetId: null,
@@ -113,6 +116,16 @@ export function useTopperStore() {
     setState((prev) => ({ ...prev, selectedAssetId: id }))
   }, [])
 
+  const setLetterOffset = useCallback((key, dx, dy) => {
+    setState(prev => ({
+      ...prev,
+      letterOffsets: {
+        ...prev.letterOffsets,
+        [key]: { x: dx, y: dy }
+      }
+    }))
+  }, [])
+
   return {
     state,
     update,
@@ -121,5 +134,7 @@ export function useTopperStore() {
     updateAsset,
     removeAsset,
     selectAsset,
+    setLetterOffset,
+    letterOffsets: state.letterOffsets,
   }
 }

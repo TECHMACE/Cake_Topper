@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo, useState } from 'react'
 import paper from 'paper'
-import { loadFont, textToSvgPath, textToGlyphPaths, getTextMetrics } from '../fontLoader'
+import { loadFont, textToGlyphPaths, getTextMetrics } from '../fontLoader'
 
 const CANVAS_W = 900   // wider to give margins for baseline bar overhang
 const CANVAS_H = 580   // taller to show long sticks comfortably
@@ -16,6 +16,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   const dragRef = useRef({ active: false, assetId: null, startX: 0, startY: 0, origX: 0, origY: 0 })
   const stickDragRef = useRef({ active: false, id: null, startX: 0, origPct: 0 })
   const stickLayoutRef = useRef({ leftX: 0, spanW: 1, bottomY: 0 })
+  const glyphHitRef = useRef([])  // [{ key, cx, cy, hw, hh }, ...]
+  const letterDragRef = useRef({ active: false, key: null, startX: 0, startY: 0, origX: 0, origY: 0 })
   const [loadedFont, setLoadedFont] = useState(null)
   const [fontLoading, setFontLoading] = useState(false)
   const [cutWarnings, setCutWarnings] = useState([])
@@ -56,6 +58,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     sg: state.showGrid, sa: state.selectedAssetId,
     ow: state.outputWidthInches, pc: state.previewColor,
     fl: loadedFont ? 'yes' : 'no',
+    lo: state.letterOffsets,
   }), [state.text, state.fontName, state.fontWeight, state.fontSize, state.letterSpacing,
     state.lineHeight, state.textX, state.textY, state.arcAmount, state.placedAssets,
     state.connectionType, state.baselineHeight, state.baselineOffset,
@@ -63,7 +66,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     state.stickCount, state.stick1X, state.stick1Y, state.stick2X, state.stick2Y,
     state.stickWidth, state.stickLength,
     state.stickTip, state.showGrid, state.selectedAssetId, state.outputWidthInches,
-    state.previewColor, loadedFont])
+    state.previewColor, loadedFont, state.letterOffsets])
 
   // Init Paper.js
   useEffect(() => {
@@ -164,6 +167,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         const lineHeightPx = state.fontSize * state.lineHeight
         const allLinePaths = []
         const arc = state.arcAmount || 0
+        const glyphHits = []
 
         lines.forEach((line, lineIdx) => {
           const metrics = getTextMetrics(loadedFont, line, state.fontSize, state.letterSpacing)
@@ -171,17 +175,33 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           const baselineY = centerY + lineIdx * lineHeightPx
 
           if (arc === 0) {
-            const { pathData } = textToSvgPath(
-              loadedFont, line, state.fontSize,
-              startX, baselineY, state.letterSpacing
+            const { glyphs, totalWidth } = textToGlyphPaths(
+              loadedFont, line, state.fontSize, state.letterSpacing
             )
-            if (pathData) {
-              try {
-                const linePath = new scope.CompoundPath(pathData)
-                linePath.fillColor = FILL
-                linePath.fillRule = 'evenodd'
-                allLinePaths.push(linePath)
-              } catch (e) { console.warn('Flat text path failed:', line, e) }
+            if (totalWidth > 0) {
+              let cursorX = startX
+              glyphs.forEach((g, gIdx) => {
+                if (!g.pathData) { cursorX += g.advance; return }
+                const key = `${lineIdx}_${gIdx}`
+                const off = state.letterOffsets?.[key] || { x: 0, y: 0 }
+                try {
+                  const glyphPath = new scope.CompoundPath(g.pathData)
+                  glyphPath.fillRule = 'evenodd'
+                  glyphPath.fillColor = FILL
+                  // textToGlyphPaths returns paths at origin (0,0) with advance width
+                  // Translate to correct position + apply user offset
+                  glyphPath.translate(new scope.Point(cursorX + off.x, baselineY + off.y))
+                  glyphHits.push({
+                    key,
+                    cx: glyphPath.bounds.centerX,
+                    cy: glyphPath.bounds.centerY,
+                    hw: glyphPath.bounds.width / 2 + 4,
+                    hh: glyphPath.bounds.height / 2 + 4,
+                  })
+                  allLinePaths.push(glyphPath)
+                } catch (e) { console.warn('Flat glyph path failed:', g.char, e) }
+                cursorX += g.advance
+              })
             }
           } else {
             const { glyphs, totalWidth } = textToGlyphPaths(
@@ -195,14 +215,17 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               const cx = centerX
               const cy = archesUp ? (baselineY + (R - arcHeight)) : (baselineY - (R - arcHeight))
 
+              let gIdx = 0
               glyphs.forEach((g) => {
-                if (!g.pathData) return
+                if (!g.pathData) { gIdx++; return }
                 const glyphCenterX = g.x + g.advance / 2
                 const t = (glyphCenterX - totalWidth / 2) / (totalWidth / 2)
                 const angle = t * halfAngle
                 const arcX = cx + R * Math.sin(angle)
                 const arcY = archesUp ? (cy - R * Math.cos(angle)) : (cy + R * Math.cos(angle))
                 const rotDeg = (archesUp ? angle : -angle) * 180 / Math.PI
+                const key = `${lineIdx}_${gIdx}`
+                const off = state.letterOffsets?.[key] || { x: 0, y: 0 }
                 try {
                   const glyphPath = new scope.CompoundPath(g.pathData)
                   glyphPath.fillRule = 'evenodd'
@@ -210,12 +233,23 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
                   glyphPath.translate(new scope.Point(-g.advance / 2, 0))
                   glyphPath.rotate(rotDeg, new scope.Point(0, 0))
                   glyphPath.translate(new scope.Point(arcX, arcY))
+                  if (off.x !== 0 || off.y !== 0) glyphPath.translate(new scope.Point(off.x, off.y))
+                  glyphHits.push({
+                    key,
+                    cx: glyphPath.bounds.centerX,
+                    cy: glyphPath.bounds.centerY,
+                    hw: glyphPath.bounds.width / 2 + 4,
+                    hh: glyphPath.bounds.height / 2 + 4,
+                  })
                   allLinePaths.push(glyphPath)
                 } catch (e) { console.warn('Arc glyph path failed:', g.char, e) }
+                gIdx++
               })
             }
           }
         })
+
+        glyphHitRef.current = glyphHits
 
         if (allLinePaths.length > 0) {
           textPath = allLinePaths[0]
@@ -686,6 +720,19 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   const handleMouseDown = useCallback((e) => {
     const pt = getCanvasPoint(e)
     const s = storeRef.current.state
+
+    // Check letter drag — only when not using a frame connector (letters are free-standing)
+    if (s.connectionType === 'baseline' || s.connectionType === 'none') {
+      for (const hit of glyphHitRef.current) {
+        if (pt.x >= hit.cx - hit.hw && pt.x <= hit.cx + hit.hw &&
+            pt.y >= hit.cy - hit.hh && pt.y <= hit.cy + hit.hh) {
+          const off = s.letterOffsets?.[hit.key] || { x: 0, y: 0 }
+          letterDragRef.current = { active: true, key: hit.key, startX: pt.x, startY: pt.y, origX: off.x, origY: off.y }
+          return
+        }
+      }
+    }
+
     const cx = CANVAS_W / 2 + s.textX
     const cy = CANVAS_H * 0.32 + s.textY
     for (let i = s.placedAssets.length - 1; i >= 0; i--) {
@@ -710,6 +757,17 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   }, [getCanvasPoint])
 
   const handleMouseMove = useCallback((e) => {
+    // Letter drag
+    if (letterDragRef.current.active) {
+      const pt = getCanvasPoint(e)
+      const { key, startX, startY, origX, origY } = letterDragRef.current
+      storeRef.current.setLetterOffset(
+        key,
+        Math.round(origX + pt.x - startX),
+        Math.round(origY + pt.y - startY)
+      )
+      return
+    }
     // Stick handle drag
     if (stickDragRef.current.active) {
       const pt = getCanvasPoint(e)
@@ -734,6 +792,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   const handleMouseUp = useCallback(() => {
     dragRef.current.active = false
     stickDragRef.current.active = false
+    letterDragRef.current.active = false
   }, [])
 
   const handleDragOver = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }, [])
@@ -947,8 +1006,20 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
         <CanvasDimensions store={store} />
 
+        {Object.keys(store.state.letterOffsets || {}).some(k => {
+          const o = store.state.letterOffsets[k]
+          return o.x !== 0 || o.y !== 0
+        }) && (
+          <button
+            onClick={() => store.update({ letterOffsets: {} })}
+            className="absolute bottom-12 right-3 text-[10px] text-violet-600 bg-white/95 border border-violet-200 px-2 py-1 rounded-lg shadow-sm hover:bg-violet-50"
+          >
+            Reset letter positions
+          </button>
+        )}
+
         <div className="absolute top-3 right-3 text-[10px] text-gray-400 bg-white/90 px-2 py-0.5 rounded-full border border-gray-100">
-          Drag assets · drag ● to move sticks
+          Drag letters · drag assets · drag ● to move sticks
         </div>
       </div>
     </div>
