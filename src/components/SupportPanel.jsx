@@ -1,4 +1,43 @@
-import React from 'react'
+import React, { useState } from 'react'
+
+// px → mm conversion constant (at 10" output, 900px canvas)
+const CANVAS_W = 900
+
+function pxToMm(px, outputWidthInches) {
+  return ((outputWidthInches || 10) * 25.4 / CANVAS_W) * px
+}
+
+function mmToPx(mm, outputWidthInches) {
+  return mm / ((outputWidthInches || 10) * 25.4 / CANVAS_W)
+}
+
+// Slider that shows both px (internal) and mm (display) with inch toggle
+function MmSlider({ label, valuePx, min, max, step, onChange, outputWidthInches, showInch }) {
+  const mmPerPx = (outputWidthInches || 10) * 25.4 / CANVAS_W
+  const valueMm = valuePx * mmPerPx
+  const valueIn = valueMm / 25.4
+  const displayVal = showInch
+    ? `${valueIn.toFixed(2)}"`
+    : `${valueMm.toFixed(1)}mm`
+
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-gray-500">{label}</span>
+        <span className="text-gray-700 font-medium tabular-nums">{displayVal}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step || 1}
+        value={valuePx}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full accent-blue-500"
+      />
+    </div>
+  )
+}
 
 function Slider({ label, value, min, max, step, onChange, unit }) {
   return (
@@ -63,7 +102,7 @@ const CONNECTION_TYPES = [
   {
     id: 'rectangle',
     label: 'Rect',
-    desc: 'Square backing plate',
+    desc: 'Rectangle backing plate',
     svg: (
       <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
         <rect x="1" y="1" width="26" height="18" rx="2"/>
@@ -86,11 +125,26 @@ const CONNECTION_TYPES = [
       </svg>
     ),
   },
+  {
+    id: 'freeform',
+    label: 'Blob',
+    desc: 'Organic outline following letter shapes',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <path d="M4,10 C3,6 6,2 10,2 C13,2 14,4 14,4 C14,4 15,2 18,2 C22,2 25,6 24,10 C23,14 20,18 14,18 C8,18 5,14 4,10 Z"/>
+        <rect x="6" y="5" width="5" height="8" rx="1" fill="white" opacity="0.7"/>
+        <rect x="13" y="5" width="3" height="8" rx="1" fill="white" opacity="0.7"/>
+        <rect x="18" y="5" width="4" height="8" rx="1" fill="white" opacity="0.7"/>
+      </svg>
+    ),
+  },
 ]
 
 export function SupportPanel({ store }) {
   const { state, update } = store
   const connType = state.connectionType || 'baseline'
+  const [showInch, setShowInch] = useState(false)
+  const owi = state.outputWidthInches || 10
 
   return (
     <div className="p-4 space-y-5">
@@ -110,7 +164,7 @@ export function SupportPanel({ store }) {
           How letters are joined into one cuttable piece. <span className="text-amber-600 font-medium">None</span> works if letters naturally touch.
         </p>
 
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-3 gap-1">
           {CONNECTION_TYPES.map((ct) => (
             <button
               key={ct.id}
@@ -128,41 +182,74 @@ export function SupportPanel({ store }) {
           ))}
         </div>
 
+        {/* mm / inch toggle */}
+        <div className="flex items-center justify-end mt-2 gap-1.5">
+          <span className="text-[10px] text-gray-400">Units:</span>
+          <button
+            onClick={() => setShowInch(false)}
+            className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-all ${!showInch ? 'bg-violet-100 text-violet-700' : 'text-gray-400 hover:text-gray-600'}`}
+          >mm</button>
+          <button
+            onClick={() => setShowInch(true)}
+            className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-all ${showInch ? 'bg-violet-100 text-violet-700' : 'text-gray-400 hover:text-gray-600'}`}
+          >in</button>
+        </div>
+
         {/* Options for baseline bar */}
         {connType === 'baseline' && (
           <div className="mt-3 space-y-3 pl-1">
-            <Slider
+            <MmSlider
               label="Bar Thickness"
-              value={state.baselineHeight}
+              valuePx={state.baselineHeight}
               min={6}
               max={40}
               step={1}
               onChange={(v) => update({ baselineHeight: v })}
-              unit="px"
+              outputWidthInches={owi}
+              showInch={showInch}
             />
-            <Slider
+            <MmSlider
               label="Bite into Letters"
-              value={state.baselineOffset}
-              min={-40}
-              max={10}
-              onChange={(v) => update({ baselineOffset: v })}
-              unit="px"
+              valuePx={Math.abs(state.baselineOffset)}
+              min={0}
+              max={40}
+              onChange={(v) => update({ baselineOffset: -v })}
+              outputWidthInches={owi}
+              showInch={showInch}
             />
           </div>
         )}
 
         {/* Options for backing shapes */}
-        {(connType === 'circle' || connType === 'rectangle' || connType === 'diamond') && (
-          <div className="mt-3 pl-1">
-            <Slider
+        {(connType === 'circle' || connType === 'rectangle' || connType === 'diamond' || connType === 'freeform') && (
+          <div className="mt-3 pl-1 space-y-3">
+            <MmSlider
               label="Shape Padding"
-              value={state.baseShapePadding}
+              valuePx={state.baseShapePadding}
               min={4}
               max={80}
               step={2}
               onChange={(v) => update({ baseShapePadding: v })}
-              unit="px"
+              outputWidthInches={owi}
+              showInch={showInch}
             />
+            {connType !== 'freeform' && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-gray-500">Internal bar</span>
+                  <p className="text-[10px] text-gray-400">Connects letters to frame</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={state.showInternalBar !== false}
+                    onChange={(e) => update({ showInternalBar: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-violet-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all" />
+                </label>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -259,104 +346,83 @@ export function SupportPanel({ store }) {
 
         {/* Stick dimensions */}
         <div className="space-y-3">
-          <Slider
+          <MmSlider
             label="Stick Width"
-            value={state.stickWidth}
+            valuePx={state.stickWidth}
             min={6}
             max={30}
             onChange={(v) => update({ stickWidth: v })}
-            unit="px"
+            outputWidthInches={owi}
+            showInch={showInch}
           />
-          <Slider
+          <MmSlider
             label="Stick Length"
-            value={state.stickLength}
+            valuePx={state.stickLength}
             min={80}
             max={400}
             step={10}
             onChange={(v) => update({ stickLength: v })}
-            unit="px"
+            outputWidthInches={owi}
+            showInch={showInch}
           />
         </div>
 
         <div className="h-px bg-gray-100 my-3" />
 
-        {/* Stick 1 position */}
+        {/* Stick positions */}
         <div className="space-y-3">
-          <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Stick 1</p>
+          <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">
+            {state.stickCount === 2 ? 'Positions' : 'Position'}
+          </p>
           <Slider
-            label="Position X"
+            label="Stick 1 — Left/Right"
             value={state.stick1X}
             min={5}
             max={95}
             onChange={(v) => update({ stick1X: v })}
             unit="%"
           />
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs items-center">
-              <span className="text-gray-500">Position Y</span>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700 font-medium tabular-nums">{state.stick1Y > 0 ? '+' : ''}{state.stick1Y}px</span>
-                {state.stick1Y !== 0 && (
-                  <button onClick={() => update({ stick1Y: 0 })} className="text-[10px] text-blue-500 hover:text-blue-700 font-medium">Reset</button>
-                )}
-              </div>
-            </div>
-            <input
-              type="range"
-              min={-80}
-              max={80}
-              value={state.stick1Y}
-              onChange={(e) => update({ stick1Y: parseInt(e.target.value, 10) })}
-              className="w-full accent-blue-500"
+          {state.stickCount === 2 && (
+            <Slider
+              label="Stick 2 — Left/Right"
+              value={state.stick2X}
+              min={5}
+              max={95}
+              onChange={(v) => update({ stick2X: v })}
+              unit="%"
             />
-            <div className="flex justify-between text-[9px] text-gray-400 px-0.5">
-              <span>↑ Higher</span>
-              <span>Default</span>
-              <span>Lower ↓</span>
-            </div>
-          </div>
-        </div>
-
-        {state.stickCount === 2 && (
-          <>
-            <div className="h-px bg-gray-100 my-3" />
-            <div className="space-y-3">
-              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Stick 2</p>
-              <Slider
-                label="Position X"
-                value={state.stick2X}
-                min={5}
-                max={95}
-                onChange={(v) => update({ stick2X: v })}
-                unit="%"
-              />
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs items-center">
-                  <span className="text-gray-500">Position Y</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-700 font-medium tabular-nums">{state.stick2Y > 0 ? '+' : ''}{state.stick2Y}px</span>
-                    {state.stick2Y !== 0 && (
-                      <button onClick={() => update({ stick2Y: 0 })} className="text-[10px] text-blue-500 hover:text-blue-700 font-medium">Reset</button>
-                    )}
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min={-80}
-                  max={80}
-                  value={state.stick2Y}
-                  onChange={(e) => update({ stick2Y: parseInt(e.target.value, 10) })}
-                  className="w-full accent-blue-500"
-                />
-                <div className="flex justify-between text-[9px] text-gray-400 px-0.5">
-                  <span>↑ Higher</span>
-                  <span>Default</span>
-                  <span>Lower ↓</span>
+          )}
+          {[
+            { label: state.stickCount === 2 ? 'Stick 1 Height' : 'Stick Height', key: 'stick1Y', val: state.stick1Y || 0 },
+            ...(state.stickCount === 2 ? [{ label: 'Stick 2 Height', key: 'stick2Y', val: state.stick2Y || 0 }] : []),
+          ].map(({ label, key, val }) => (
+            <div key={key} className="space-y-1">
+              <div className="flex justify-between text-xs items-center">
+                <span className="text-gray-500">{label}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-700 font-medium tabular-nums">{val > 0 ? '+' : ''}{val}px</span>
+                  {val !== 0 && (
+                    <button onClick={() => update({ [key]: 0 })} className="text-[10px] text-blue-500 hover:text-blue-700 font-medium">Reset</button>
+                  )}
                 </div>
               </div>
+              <input
+                type="range"
+                min={-120}
+                max={120}
+                value={val}
+                onChange={(e) => update({ [key]: parseInt(e.target.value, 10) })}
+                className="w-full accent-blue-500"
+              />
+              <div className="flex justify-between text-[9px] text-gray-400 px-0.5">
+                <span>↑ Higher</span>
+                <span>Default</span>
+                <span>Lower ↓</span>
+              </div>
             </div>
-          </>
-        )}
+          ))}
+          <p className="text-[9px] text-gray-400">Drag ● handles on canvas to move each stick independently.</p>
+        </div>
       </>)}
       </div>
 

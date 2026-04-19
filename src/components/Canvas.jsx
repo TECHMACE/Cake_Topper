@@ -14,7 +14,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   storeRef.current = store
 
   const dragRef = useRef({ active: false, assetId: null, startX: 0, startY: 0, origX: 0, origY: 0 })
-  const stickDragRef = useRef({ active: false, id: null, startX: 0, origPct: 0 })
+  const stickDragRef = useRef({ active: false, id: null, startX: 0, startY: 0, origPct: 0, origY: 0 })
   const stickLayoutRef = useRef({ leftX: 0, spanW: 1, bottomY: 0 })
   const glyphHitRef = useRef([])  // [{ key, cx, cy, hw, hh }, ...]
   const letterDragRef = useRef({ active: false, key: null, startX: 0, startY: 0, origX: 0, origY: 0 })
@@ -52,21 +52,20 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     tx: state.textX, ty: state.textY, arc: state.arcAmount, pa: state.placedAssets,
     ct: state.connectionType, bh: state.baselineHeight, bo: state.baselineOffset,
     bsp: state.baseShapePadding, le: state.letterExpansion,
-    sc: state.stickCount, s1: state.stick1X, s1y: state.stick1Y,
-    s2: state.stick2X, s2y: state.stick2Y,
+    sc: state.stickCount, s1: state.stick1X, s2: state.stick2X, s1y: state.stick1Y, s2y: state.stick2Y,
     sw: state.stickWidth, sl: state.stickLength, st: state.stickTip,
     sg: state.showGrid, sa: state.selectedAssetId,
-    ow: state.outputWidthInches, pc: state.previewColor,
+    ow: state.outputWidthInches, pc: state.previewColor, sib: state.showInternalBar,
     fl: loadedFont ? 'yes' : 'no',
     lo: state.letterOffsets,
   }), [state.text, state.fontName, state.fontWeight, state.fontSize, state.letterSpacing,
     state.lineHeight, state.textX, state.textY, state.arcAmount, state.placedAssets,
     state.connectionType, state.baselineHeight, state.baselineOffset,
     state.baseShapePadding, state.letterExpansion,
-    state.stickCount, state.stick1X, state.stick1Y, state.stick2X, state.stick2Y,
+    state.stickCount, state.stick1X, state.stick2X, state.stick1Y, state.stick2Y,
     state.stickWidth, state.stickLength,
     state.stickTip, state.showGrid, state.selectedAssetId, state.outputWidthInches,
-    state.previewColor, loadedFont, state.letterOffsets])
+    state.previewColor, loadedFont, state.letterOffsets, state.showInternalBar])
 
   // Init Paper.js
   useEffect(() => {
@@ -162,16 +161,14 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       let textBounds = null
 
       const text = state.text.trim()
+      let glyphHits = []
       if (text && loadedFont) {
         const lines = text.split('\n').filter(l => l.length > 0)
         const lineHeightPx = state.fontSize * state.lineHeight
         const allLinePaths = []
         const arc = state.arcAmount || 0
-        const glyphHits = []
 
         lines.forEach((line, lineIdx) => {
-          const metrics = getTextMetrics(loadedFont, line, state.fontSize, state.letterSpacing)
-          const startX = centerX - metrics.width / 2
           const baselineY = centerY + lineIdx * lineHeightPx
 
           if (arc === 0) {
@@ -179,18 +176,19 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               loadedFont, line, state.fontSize, state.letterSpacing
             )
             if (totalWidth > 0) {
-              let cursorX = startX
+              // Use totalWidth (includes letterSpacing) for correct centering.
+              // g.x is the pre-computed cumulative position for each glyph, also
+              // including letterSpacing — so translate uses startX + g.x directly.
+              const startX = centerX - totalWidth / 2
               glyphs.forEach((g, gIdx) => {
-                if (!g.pathData) { cursorX += g.advance; return }
+                if (!g.pathData) { return }
                 const key = `${lineIdx}_${gIdx}`
                 const off = state.letterOffsets?.[key] || { x: 0, y: 0 }
                 try {
                   const glyphPath = new scope.CompoundPath(g.pathData)
                   glyphPath.fillRule = 'evenodd'
                   glyphPath.fillColor = FILL
-                  // textToGlyphPaths returns paths at origin (0,0) with advance width
-                  // Translate to correct position + apply user offset
-                  glyphPath.translate(new scope.Point(cursorX + off.x, baselineY + off.y))
+                  glyphPath.translate(new scope.Point(startX + g.x + off.x, baselineY + off.y))
                   glyphHits.push({
                     key,
                     cx: glyphPath.bounds.centerX,
@@ -200,7 +198,6 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
                   })
                   allLinePaths.push(glyphPath)
                 } catch (e) { console.warn('Flat glyph path failed:', g.char, e) }
-                cursorX += g.advance
               })
             }
           } else {
@@ -268,16 +265,24 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           // giving the effect of thicker / bolder letter strokes.
           const expansion = state.letterExpansion || 0
           if (expansion > 0 && textPath.className === 'CompoundPath' && textPath.children) {
+            // Apply expansion to each child path individually
+            // For outer (CW) paths: scale outward. For inner holes (CCW): scale inward.
+            // Use the smaller dimension to avoid over-scaling thin/degenerate paths.
             textPath.children.forEach((child) => {
               if (child.className !== 'Path') return
               const isOuter = child.clockwise
               const center = child.bounds.center
-              const avg = (child.bounds.width + child.bounds.height) / 2
-              if (avg < 2) return
-              const factor = isOuter
-                ? (avg + expansion * 2) / avg
-                : Math.max(0.05, (avg - expansion * 2) / avg)
-              child.scale(factor, center)
+              const size = Math.min(child.bounds.width, child.bounds.height)
+              if (size < 4) return  // skip degenerate paths
+              if (isOuter) {
+                // Grow outer: fixed pixel offset approximated via proportional scale
+                const avg = (child.bounds.width + child.bounds.height) / 2
+                if (avg > 0) child.scale((avg + expansion * 2) / avg, center)
+              } else {
+                // Shrink inner hole: don't close it below 60% of original size
+                const avg = (child.bounds.width + child.bounds.height) / 2
+                if (avg > 0) child.scale(Math.max(0.6, (avg - expansion * 2) / avg), center)
+              }
             })
           } else if (expansion > 0 && textPath.className === 'Path') {
             const avg = (textPath.bounds.width + textPath.bounds.height) / 2
@@ -313,6 +318,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const isArced = (state.arcAmount || 0) !== 0
       const connType = state.connectionType || 'baseline'
 
+      // When no internal bar in frame mode, use evenodd fill rule (unite fills the hole otherwise)
+      const noBarFrameMode = connType !== 'baseline' && connType !== 'none' && connType !== 'freeform' && state.showInternalBar === false
+
       // ── Shape connectors — surrounding FRAMES centered on the text ──────────
       // Each shape is an outer path with an inner cutout (a ring/border).
       // The frame surrounds the text; letters that touch the inner edge weld
@@ -322,7 +330,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         const cx = textBounds.center.x
         const cy = textBounds.center.y
         // Frame border thickness proportional to padding
-        const ft = Math.max(8, Math.round(pad * 0.38))
+        const ft = Math.max(10, Math.round(pad * 0.40))
+        // Save original text bounds before frame union (used for internal bar)
+        const origTextBottom = textBounds.bottom
+        const origHalfW = textBounds.width / 2
         let outerShape = null, innerShape = null
 
         if (connType === 'circle') {
@@ -342,24 +353,94 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           innerShape = new scope.Path({ segments: [[cx, cy - hh + ft], [cx + hw - ft, cy], [cx, cy + hh - ft], [cx - hw + ft, cy]], closed: true })
         }
 
-        if (outerShape && innerShape) {
+        if (connType === 'freeform' && textPath) {
+          // Freeform blob: pill-shaped ring sized to text aspect ratio
+          const hw = textBounds.width / 2 + pad
+          const hh = textBounds.height / 2 + pad
+          const r = hh  // fully rounded ends = pill/stadium shape
+          try {
+            const outerPill = new scope.Path.Rectangle(
+              new scope.Rectangle(cx - hw, cy - hh, hw * 2, hh * 2),
+              new scope.Size(r, r)
+            )
+            const innerPill = new scope.Path.Rectangle(
+              new scope.Rectangle(cx - hw + ft, cy - hh + ft, (hw - ft) * 2, (hh - ft) * 2),
+              new scope.Size(Math.max(2, r - ft), Math.max(2, r - ft))
+            )
+            outerPill.fillColor = FILL
+            innerPill.fillColor = FILL
+            const frame = outerPill.subtract(innerPill)
+            outerPill.remove(); innerPill.remove()
+            frame.fillColor = FILL
+            const u = textPath.unite(frame)
+            textPath.remove(); frame.remove()
+            textPath = u
+            textPath.fillColor = FILL
+            textBounds = textPath.bounds.clone()
+          } catch { /* keep going */ }
+        } else if (outerShape && innerShape) {
           outerShape.fillColor = FILL
           innerShape.fillColor = FILL
           try {
             const frame = outerShape.subtract(innerShape)
             outerShape.remove(); innerShape.remove()
             frame.fillColor = FILL
-            if (textPath) {
+            const frameBounds = frame.bounds.clone()
+
+            if (!textPath) {
+              textPath = frame
+              textBounds = frameBounds
+            } else if (state.showInternalBar !== false) {
+              // With internal bar: unite so bars can bridge letters to frame
               const u = textPath.unite(frame)
               textPath.remove(); frame.remove()
               textPath = u
               textPath.fillColor = FILL
               textBounds = textPath.bounds.clone()
             } else {
-              textPath = frame
-              textBounds = frame.bounds.clone()
+              // No internal bar: assemble as compound path with evenodd fill rule.
+              // unite() fills the ring hole when letters are inside — this avoids that.
+              const combined = new scope.CompoundPath({ fillColor: FILL, fillRule: 'evenodd' })
+              const frameKids = frame.className === 'CompoundPath' ? [...frame.children] : [frame]
+              const textKids = textPath.className === 'CompoundPath' ? [...textPath.children] : [textPath]
+              frameKids.forEach(c => combined.addChild(c.clone()))
+              textKids.forEach(c => combined.addChild(c.clone()))
+              textPath.remove(); frame.remove()
+              textPath = combined
+              textBounds = frameBounds
             }
           } catch { outerShape.remove(); innerShape.remove() }
+        }
+
+        // Internal connecting bars — optional, controlled by showInternalBar toggle
+        if (textPath && connType !== 'freeform' && state.showInternalBar !== false) {
+          const fontSize = state.fontSize
+          const lines = state.text.trim().split('\n').filter(l => l.length > 0)
+          const lineHeightPx = fontSize * state.lineHeight
+          const descentPx = Math.round(fontSize * 0.22)
+          const barH = Math.max(10, Math.round(fontSize * 0.40))
+          // Extend into the frame ring on both sides so the bar definitely overlaps
+          const innerHalfW = origHalfW + pad
+
+          const lineBottoms = isArced
+            ? [origTextBottom]
+            : lines.map((_, i) => centerY + i * lineHeightPx + descentPx)
+
+          for (const lineBottom of lineBottoms) {
+            const barTop = lineBottom - barH
+            const internalBar = new scope.Path.Rectangle(
+              new scope.Rectangle(cx - innerHalfW, barTop, innerHalfW * 2, barH),
+              new scope.Size(barH / 2, barH / 2)
+            )
+            internalBar.fillColor = FILL
+            try {
+              const u = textPath.unite(internalBar)
+              textPath.remove(); internalBar.remove()
+              textPath = u
+              textPath.fillColor = FILL
+            } catch { internalBar.remove() }
+          }
+          textBounds = textPath.bounds.clone()
         }
       }
 
@@ -492,15 +573,29 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       function makeStick(xPct, yOff = 0) {
         const sx = leftX + (xPct / 100) * spanW
         const hw = state.stickWidth / 2
-        // Stick overlaps just enough to weld to the bar/frame — half the bar height.
-        // This keeps the stick top below the letters so it doesn't visually
-        // poke up into the text, while still creating a solid bond.
         const barH = state.baselineHeight || 12
-        const frameThickness = Math.max(8, Math.round((state.baseShapePadding || 20) * 0.38))
-        const overlapDepth = connType === 'none' ? 0
-          : connType === 'baseline' ? Math.round(barH * 0.6)
-          : frameThickness + 4
-        const stickTop = bottomY - overlapDepth + yOff
+        const frameThickness = Math.max(8, Math.round((state.baseShapePadding || 20) * 0.40))
+
+        let stickAnchorY = bottomY
+        if (connType === 'none') {
+          // In none mode, anchor each stick to the bottom of the nearest glyph
+          // at the stick's horizontal position so dragged letters pull their sticks.
+          const hits = glyphHits  // built in the text render loop above
+          if (hits.length > 0) {
+            let best = null, bestDist = Infinity
+            for (const h of hits) {
+              const dx = Math.abs(h.cx - sx)
+              if (dx < bestDist) { bestDist = dx; best = h }
+            }
+            if (best) stickAnchorY = best.cy + best.hh
+          }
+        }
+
+        const overlapDepth = connType === 'none'
+          ? Math.max(20, Math.round(state.fontSize * 0.55))
+          : connType === 'baseline' ? Math.max(barH, Math.round(barH * 1.2))
+          : frameThickness + 8
+        const stickTop = stickAnchorY - overlapDepth + yOff
 
         if (state.stickTip === 'pointed') {
           const bH = state.stickLength * 0.75
@@ -527,18 +622,32 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         }
       }
 
-      const stickPaths = []
-      if (state.stickCount >= 1) stickPaths.push(makeStick(state.stick1X, state.stick1Y || 0))
-      if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X, state.stick2Y || 0))
-
-      // Persist layout so stick-drag handles can map x% ↔ canvas px
+      // Persist layout so stick-drag handles can map x%/y ↔ canvas px
       stickLayoutRef.current = { leftX, spanW, bottomY }
+
+      function stickAnchorForPct(xPct) {
+        if (connType !== 'none' || glyphHits.length === 0) return bottomY
+        const sx = leftX + (xPct / 100) * spanW
+        let best = null, bestDist = Infinity
+        for (const h of glyphHits) {
+          const dx = Math.abs(h.cx - sx)
+          if (dx < bestDist) { bestDist = dx; best = h }
+        }
+        return best ? best.cy + best.hh : bottomY
+      }
+
+      const stick1Y = state.stick1Y || 0
+      const stick2Y = state.stick2Y || 0
+      const stickPaths = []
+      if (state.stickCount >= 1) stickPaths.push(makeStick(state.stick1X, stick1Y))
+      if (state.stickCount === 2) stickPaths.push(makeStick(state.stick2X, stick2Y))
+
       const newHandlePos = []
       if (state.stickCount >= 1) {
-        newHandlePos.push({ id: 's1', x: leftX + (state.stick1X / 100) * spanW, y: bottomY })
+        newHandlePos.push({ id: 's1', x: leftX + (state.stick1X / 100) * spanW, y: bottomY + stick1Y })
       }
       if (state.stickCount === 2) {
-        newHandlePos.push({ id: 's2', x: leftX + (state.stick2X / 100) * spanW, y: bottomY })
+        newHandlePos.push({ id: 's2', x: leftX + (state.stick2X / 100) * spanW, y: bottomY + stick2Y })
       }
       setTimeout(() => setStickHandlePos(newHandlePos), 0)
 
@@ -565,20 +674,20 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       if (finalPath) {
         finalPath.fillColor = FILL
-        finalPath.fillRule = 'nonzero'
+        finalPath.fillRule = noBarFrameMode ? 'evenodd' : 'nonzero'
 
         // --- AUTO-BRIDGE DISCONNECTED PARTS ---
-        // Bridges need to be ≥ 6px (~1.9mm at 10") to survive cutting.
-        // Track max bridge distance: small gaps (< 15px) are just letter-curve
-        // micro-gaps and fine; large gaps (≥ 15px) produce dangerously thin bridges.
+        // Skip bridging in no-bar frame mode: bridges would wrongly connect letters
+        // to the outer ring edge (crossing through the ring band).
+        // User must ensure letters naturally touch the inner ring edge.
         let autoBridgesAdded = 0
         let maxBridgeDist = 0
 
-        if (finalPath.className === 'CompoundPath' && finalPath.children) {
+        if (!noBarFrameMode && finalPath.className === 'CompoundPath' && finalPath.children) {
           let needsBridging = true
           let bridgeAttempts = 0
           // Plaque mode has many counter-form islands (insides of O, B, D, P, etc.)
-          const MAX_BRIDGE_ATTEMPTS = connType === 'rectangle' ? 80 : 30
+          const MAX_BRIDGE_ATTEMPTS = (connType === 'rectangle' || connType === 'circle' || connType === 'diamond' || connType === 'freeform') ? 80 : 30
           // Minimum bridge width: 4px ≈ 1.3mm at 10" output — hairline but survivable
           const MIN_BRIDGE_PX = 4
 
@@ -603,8 +712,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               const dx = mainNearest.x - contourNearest.x
               const dy = mainNearest.y - contourNearest.y
               const dist = Math.sqrt(dx * dx + dy * dy)
-              // Keep bridges thin — max 6px so micro-bridges don't create visible blocks
-              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(6, contour.bounds.width * 0.2))
+              // Scale bridge width to the isolated contour — larger pieces need wider bridges
+              const maxBW = (connType === 'none' || connType === 'baseline') ? 8 : Math.max(8, contour.bounds.width * 0.25)
+              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(maxBW, contour.bounds.width * 0.25))
 
               let bridge
               if (dist < 1) {
@@ -635,7 +745,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
                 bridge.remove()
                 finalPath = united
                 finalPath.fillColor = FILL
-                finalPath.fillRule = 'nonzero'
+                finalPath.fillRule = noBarFrameMode ? 'evenodd' : 'nonzero'
                 autoBridgesAdded++
                 if (dist > maxBridgeDist) maxBridgeDist = dist
                 needsBridging = true
@@ -678,9 +788,14 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         // If connected, bridges were micro-gaps that got fixed — no warning needed.
         if (!connected) {
           const isMultiLine = text.split('\n').filter(l => l.length > 0).length > 1
-          const bridgeHint = isMultiLine && connType === 'baseline'
-            ? 'Lines not touching — reduce Line Height or hit Auto Fit'
-            : 'Parts disconnected — enable a Bar or Shape connector'
+          let bridgeHint
+          if (noBarFrameMode) {
+            bridgeHint = 'Letters not touching frame — increase font size, reduce padding, or turn on Internal Bar'
+          } else if (isMultiLine && connType === 'baseline') {
+            bridgeHint = 'Lines not touching — reduce Line Height or hit Auto Fit'
+          } else {
+            bridgeHint = 'Parts disconnected — enable a Bar or Shape connector'
+          }
           newWarnings.push(bridgeHint)
         }
 
@@ -721,15 +836,12 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     const pt = getCanvasPoint(e)
     const s = storeRef.current.state
 
-    // Check letter drag — only when not using a frame connector (letters are free-standing)
-    if (s.connectionType === 'baseline' || s.connectionType === 'none') {
-      for (const hit of glyphHitRef.current) {
-        if (pt.x >= hit.cx - hit.hw && pt.x <= hit.cx + hit.hw &&
-            pt.y >= hit.cy - hit.hh && pt.y <= hit.cy + hit.hh) {
-          const off = s.letterOffsets?.[hit.key] || { x: 0, y: 0 }
-          letterDragRef.current = { active: true, key: hit.key, startX: pt.x, startY: pt.y, origX: off.x, origY: off.y }
-          return
-        }
+    for (const hit of glyphHitRef.current) {
+      if (pt.x >= hit.cx - hit.hw && pt.x <= hit.cx + hit.hw &&
+          pt.y >= hit.cy - hit.hh && pt.y <= hit.cy + hit.hh) {
+        const off = s.letterOffsets?.[hit.key] || { x: 0, y: 0 }
+        letterDragRef.current = { active: true, key: hit.key, startX: pt.x, startY: pt.y, origX: off.x, origY: off.y }
+        return
       }
     }
 
@@ -748,12 +860,19 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   }, [getCanvasPoint])
 
   const handleStickMouseDown = useCallback((e, handleId) => {
-    e.preventDefault()
-    e.stopPropagation()
     const pt = getCanvasPoint(e)
     const s = storeRef.current.state
     const origPct = handleId === 's1' ? s.stick1X : s.stick2X
-    stickDragRef.current = { active: true, id: handleId, startX: pt.x, origPct }
+    const origY = handleId === 's1' ? (s.stick1Y || 0) : (s.stick2Y || 0)
+    const { leftX, spanW, bottomY } = stickLayoutRef.current
+    const handleX = leftX + (origPct / 100) * spanW
+    const handleY = bottomY + origY
+    const dx = pt.x - handleX
+    const dy = pt.y - handleY
+    if (Math.sqrt(dx * dx + dy * dy) > 14) return
+    e.preventDefault()
+    e.stopPropagation()
+    stickDragRef.current = { active: true, id: handleId, startX: pt.x, startY: pt.y, origPct, origY }
   }, [getCanvasPoint])
 
   const handleMouseMove = useCallback((e) => {
@@ -768,16 +887,22 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       )
       return
     }
-    // Stick handle drag
+    // Stick handle drag — horizontal moves this stick's X, vertical moves this stick's Y independently
     if (stickDragRef.current.active) {
       const pt = getCanvasPoint(e)
-      const { id, startX, origPct } = stickDragRef.current
+      const { id, startX, startY, origPct, origY } = stickDragRef.current
       const { spanW } = stickLayoutRef.current
+      const updates = {}
       if (spanW > 0) {
         const deltaPct = ((pt.x - startX) / spanW) * 100
         const newPct = Math.round(Math.max(5, Math.min(95, origPct + deltaPct)))
-        storeRef.current.update(id === 's1' ? { stick1X: newPct } : { stick2X: newPct })
+        if (id === 's1') updates.stick1X = newPct
+        else updates.stick2X = newPct
       }
+      const newY = Math.round(Math.max(-120, Math.min(120, origY + (pt.y - startY))))
+      if (id === 's1') updates.stick1Y = newY
+      else updates.stick2Y = newY
+      storeRef.current.update(updates)
       return
     }
     // Asset drag
@@ -868,15 +993,14 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       const lines = s.text.trim().split('\n').filter(l => l.length > 0)
       const isMultiLine = lines.length > 1
+      const connType = s.connectionType || 'baseline'
+      const isFrameMode = connType !== 'baseline' && connType !== 'none'
 
-      // ── 1. Ideal font size ─────────────────────────────────────────────────
-      // For multi-line, each line targets 65% of canvas width — leaves breathing
-      // room and keeps the design from feeling cramped once lines are touching.
-      // Single-line can fill 74%.
-      const TARGET_W = CANVAS_W * (isMultiLine ? 0.65 : 0.74)
+      // ── 1. Font size: target 65% canvas width (multi-line) or 74% (single) ──
+      const TARGET_W = CANVAS_W * (isFrameMode ? 0.55 : isMultiLine ? 0.65 : 0.74)
       const REF_SIZE = 100
-      const letterSpacing = Math.max(-2, Math.min(8, s.letterSpacing))
-      const widths = lines.map(l => getTextMetrics(font, l, REF_SIZE, letterSpacing).width)
+      const ls = s.letterSpacing  // preserve user's spacing
+      const widths = lines.map(l => getTextMetrics(font, l, REF_SIZE, ls).width)
       const maxW = Math.max(...widths.filter(Boolean))
       let fontSize = s.fontSize
       if (maxW > 0) {
@@ -884,51 +1008,45 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         fontSize = Math.max(40, Math.min(200, fontSize))
       }
 
-      // ── 2. Line height — force descenders to physically overlap next line ────
-      // For multi-line, we need the descenders of line 0 (the "y","p" of "Happy")
-      // to physically intersect the ascenders of line 1 ("B","d" of "Birthday").
-      // lineHeight = (capRatio + descRatio) puts bboxes exactly touching.
-      // Going 18% below that guarantees real path intersection for bold fonts.
-      // 0.62 has been tested to work for typical bold/chunky fonts at this canvas size.
-      const lineHeight = isMultiLine ? 0.62 : 1.05
-
-      // ── 3. Proportions — preserve connectionType, fix sizes ─────────────────
-      const barHeight = Math.max(10, Math.round(fontSize * 0.10))
-      const barOffset = -Math.round(barHeight * 0.55)
-
-      // For frame connectors (circle/rect/diamond) use generous padding so the
-      // frame border is wide enough that every letter touches it — no gap errors.
-      // For baseline keep it proportional.
-      const connType = s.connectionType || 'baseline'
-      const shapePadding = (connType !== 'baseline' && connType !== 'none')
-        ? Math.max(22, Math.round(fontSize * 0.26))  // generous: wide frame border = guaranteed contact
-        : Math.max(14, Math.round(fontSize * 0.20))
-
-      // ── 4. Sticks ─────────────────────────────────────────────────────────
-      const stick1X     = s.stickCount === 1 ? 50 : 22
-      const stick2X     = 78
-      const stickWidth  = Math.max(10, Math.round(fontSize * 0.13))
-      const stickLength = Math.max(220, Math.min(360, Math.round(fontSize * 2.4)))
+      // ── 2. Line height for multi-line ─────────────────────────────────────
+      // 0.62 forces descenders of line 1 to physically overlap ascenders of line 2
+      const lineHeight = isMultiLine ? 0.62 : s.lineHeight
 
       const updates = {
         fontSize,
-        letterSpacing,
         textX: 0,
         textY: 0,
-        baselineHeight: barHeight,
-        baselineOffset: barOffset,
-        baseShapePadding: shapePadding,
-        stick1X,
-        stick2X,
+        letterOffsets: {},
         stick1Y: 0,
         stick2Y: 0,
-        stickWidth,
-        stickLength,
       }
-      // Only force lineHeight for multi-line baseline — frame modes don't need it
-      if (isMultiLine && connType === 'baseline') {
-        updates.lineHeight = lineHeight
+      if (isMultiLine) updates.lineHeight = lineHeight
+
+      // ── 3. Per-connection-type fixes ──────────────────────────────────────
+      if (connType === 'baseline') {
+        // Bar must be thick enough to connect letter descenders to bar
+        const barH = Math.max(10, Math.round(fontSize * 0.12))
+        // Bite deep into letter bottoms so every descender welds to bar
+        updates.baselineHeight = barH
+        updates.baselineOffset = -Math.round(barH * 0.75)
+      } else if (isFrameMode) {
+        // Frame padding: must be large enough for internal bars to reach inner ring edge
+        // Also ensure bars are tall enough to span the full frame inner width
+        const pad = Math.max(24, Math.round(fontSize * 0.30))
+        updates.baseShapePadding = pad
+        // Make sure internal bar is on when auto-fitting frame modes
+        // (user may have turned it off; warn them via the connection check)
+        updates.showInternalBar = true
       }
+
+      // ── 4. Sticks ─────────────────────────────────────────────────────────
+      if (s.stickCount > 0) {
+        updates.stick1X = s.stickCount === 1 ? 50 : 22
+        updates.stick2X = 78
+        updates.stickWidth = Math.max(10, Math.round(fontSize * 0.13))
+        updates.stickLength = Math.max(220, Math.min(360, Math.round(fontSize * 2.4)))
+      }
+
       storeRef.current.update(updates)
     },
   }))
@@ -992,12 +1110,11 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         {stickHandlePos.map((h) => (
           <div
             key={h.id}
-            className="absolute z-10 cursor-ew-resize select-none"
-            style={{ left: h.x - 10, top: h.y - 10, width: 20, height: 20 }}
+            className="absolute z-10 cursor-move select-none"
+            style={{ left: h.x - 13, top: h.y - 13, width: 26, height: 26 }}
             onMouseDown={(e) => handleStickMouseDown(e, h.id)}
           >
-            {/* Outer ring */}
-            <div className="w-5 h-5 rounded-full bg-amber-400/70 border-2 border-white shadow-lg flex items-center justify-center">
+            <div className="w-[26px] h-[26px] rounded-full bg-amber-400 border-2 border-white shadow-lg flex items-center justify-center">
               {/* Inner dot */}
               <div className="w-1.5 h-1.5 rounded-full bg-white" />
             </div>
@@ -1019,7 +1136,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         )}
 
         <div className="absolute top-3 right-3 text-[10px] text-gray-400 bg-white/90 px-2 py-0.5 rounded-full border border-gray-100">
-          Drag letters · drag assets · drag ● to move sticks
+          Drag letters · drag assets · drag ● to reposition sticks (any direction)
         </div>
       </div>
     </div>
@@ -1029,6 +1146,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 function CanvasDimensions({ store }) {
   const { state } = store
   const [dims, setDims] = useState(null)
+  const [unitIn, setUnitIn] = useState(false)
 
   useEffect(() => {
     let raf
@@ -1051,36 +1169,46 @@ function CanvasDimensions({ store }) {
     return () => cancelAnimationFrame(raf)
   }, [state.outputWidthInches])
 
+  const exportWidthMm = state.outputWidthInches * 25.4
+
   return (
-    <div className="absolute bottom-3 left-3 flex items-center gap-2">
+    <div className="absolute bottom-3 left-3 flex flex-col gap-1.5">
+      {/* Cut size readout */}
       <div className="text-[10px] text-gray-600 bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 font-medium tabular-nums shadow-sm">
         {dims ? (
-          <>
-            <span className="text-violet-600 font-semibold">Cut size:</span>{' '}
-            {dims.widthIn.toFixed(2)}″ × {dims.heightIn.toFixed(2)}″{' '}
-            <span className="text-gray-400">({Math.round(dims.widthMm)}×{Math.round(dims.heightMm)}mm)</span>
-          </>
+          <span>
+            <span className="text-violet-600 font-semibold">Cut size: </span>
+            {unitIn
+              ? `${dims.widthIn.toFixed(2)}″ × ${dims.heightIn.toFixed(2)}″`
+              : `${Math.round(dims.widthMm)}mm × ${Math.round(dims.heightMm)}mm`}
+          </span>
         ) : (
           <span className="text-gray-400">Measuring…</span>
         )}
       </div>
-      <label
-        title="Set your desired cut width in inches — all dimensions (cut size, mm) scale to match. A 10″ topper is standard."
-        className="text-[10px] bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1 shadow-sm cursor-help"
-      >
-        <span className="text-gray-500">Cut width:</span>
+
+      {/* Export size control */}
+      <div className="bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-2 shadow-sm">
+        <span className="text-[10px] text-gray-500">Export width:</span>
         <input
           type="number"
-          min={2}
-          max={36}
-          step={0.5}
-          value={state.outputWidthInches}
-          onChange={(e) => store.update({ outputWidthInches: parseFloat(e.target.value) || 10 })}
-          className="w-10 text-xs text-gray-800 outline-none bg-transparent cursor-text"
-          title=""
+          min={unitIn ? 2 : 50}
+          max={unitIn ? 36 : 914}
+          step={unitIn ? 0.5 : 5}
+          value={unitIn ? state.outputWidthInches : Math.round(exportWidthMm)}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value) || (unitIn ? 10 : 254)
+            store.update({ outputWidthInches: unitIn ? v : v / 25.4 })
+          }}
+          className="w-12 text-xs text-gray-800 outline-none bg-transparent cursor-text font-medium tabular-nums"
+          title="Sets physical cut size of exported SVG. Does not resize the preview."
         />
-        <span className="text-gray-400">in</span>
-      </label>
+        {/* mm/in toggle */}
+        <div className="flex gap-0.5">
+          <button onClick={() => setUnitIn(false)} className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${!unitIn ? 'bg-violet-100 text-violet-700' : 'text-gray-400 hover:text-gray-600'}`}>mm</button>
+          <button onClick={() => setUnitIn(true)} className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${unitIn ? 'bg-violet-100 text-violet-700' : 'text-gray-400 hover:text-gray-600'}`}>in</button>
+        </div>
+      </div>
     </div>
   )
 }

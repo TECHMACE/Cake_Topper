@@ -76,53 +76,67 @@ export const ASSET_CATEGORIES = {
     icon: '🐾',
     assets: [
       {
-        // Standard 4-pad paw print clipart: heart-shaped main pad + 4 toe ovals
+        // 5 separate ovals: large palm + 4 round toes. All within 0-100.
         id: 'paw-print',
         name: 'Paw Print',
-        pathData: 'M50,95 C35,85 15,72 15,55 C15,44 23,36 33,36 C39,36 44,39 50,45 C56,39 61,36 67,36 C77,36 85,44 85,55 C85,72 65,85 50,95 Z M22,28 C16,28 11,22 11,15 C11,8 16,3 22,3 C28,3 33,8 33,15 C33,22 28,28 22,28 Z M42,18 C37,18 33,14 33,9 C33,4 37,0 42,0 C47,0 51,4 51,9 C51,14 47,18 42,18 Z M58,18 C53,18 49,14 49,9 C49,4 53,0 58,0 C63,0 67,4 67,9 C67,14 63,18 58,18 Z M78,28 C72,28 67,22 67,15 C67,8 72,3 78,3 C84,3 89,8 89,15 C89,22 84,28 78,28 Z',
-        viewBox: '0 0 100 98',
-      },
-      {
-        // Classic dog bone: two rounded knob ends + rectangular shaft
-        id: 'bone',
-        name: 'Dog Bone',
-        pathData: 'M25,50 C25,61 16,70 5,70 C-6,70 -6,50 5,50 C5,40 -6,30 5,30 C16,30 25,39 25,50 Z M75,50 C75,61 84,70 95,70 C106,70 106,50 95,50 C95,40 106,30 95,30 C84,30 75,39 75,50 Z M25,42 L75,42 L75,58 L25,58 Z',
+        pathData: 'M28,75 A22,15 0 0,1 72,75 A22,15 0 0,1 28,75 Z M11,52 A9,9 0 0,1 29,52 A9,9 0 0,1 11,52 Z M28,42 A9,9 0 0,1 46,42 A9,9 0 0,1 28,42 Z M54,42 A9,9 0 0,1 72,42 A9,9 0 0,1 54,42 Z M71,52 A9,9 0 0,1 89,52 A9,9 0 0,1 71,52 Z',
         viewBox: '0 0 100 100',
       },
       {
-        // Clean fish silhouette facing right — oval body, fan tail, eye dot
+        // Classic dog bone: shaft + 2 round bumps on each end
+        id: 'dog-bone',
+        name: 'Dog Bone',
+        pathData: 'M30,42 C22,32 6,34 6,50 C6,66 22,68 30,58 L70,58 C78,68 94,66 94,50 C94,34 78,32 70,42 Z',
+        viewBox: '0 0 100 100',
+      },
+      {
+        // Dog face: round head with wide FLOPPY ears extending to the sides (not pointed up)
+        id: 'dog-face',
+        name: 'Dog',
+        pathData: 'M50,10 C64,10 76,16 80,28 C86,22 96,26 96,40 C96,54 88,62 78,60 C80,70 80,82 72,88 C64,94 56,90 50,88 C44,90 36,94 28,88 C20,82 20,70 22,60 C12,62 4,54 4,40 C4,26 14,22 20,28 C24,16 36,10 50,10 Z',
+        viewBox: '0 0 100 100',
+      },
+      {
+        // Cat face: round head with two POINTED triangular ears sticking straight up
+        id: 'cat-face',
+        name: 'Cat',
+        pathData: 'M50,20 L76,4 L72,30 C84,32 94,42 94,56 C94,72 82,84 66,88 C60,92 56,92 50,92 C44,92 40,92 34,88 C18,84 6,72 6,56 C6,42 16,32 28,30 L24,4 Z',
+        viewBox: '0 0 100 96',
+      },
+      {
+        // Rabbit: connected silhouette with two very tall upright ears + round body
+        id: 'rabbit',
+        name: 'Rabbit',
+        pathData: 'M38,8 C44,8 46,20 44,40 C47,38 53,38 56,40 C54,20 56,8 62,8 C68,8 70,18 70,28 C70,38 66,42 62,44 C72,52 78,64 78,76 C78,90 66,98 50,98 C34,98 22,90 22,76 C22,64 28,52 38,44 C34,42 30,38 30,28 C30,18 32,8 38,8 Z',
+        viewBox: '0 0 100 100',
+      },
+      {
+        // Fish: oval body facing right, forked tail on the left
         id: 'fish',
         name: 'Fish',
-        pathData: 'M60,10 C85,10 100,25 100,40 C100,55 85,70 60,70 C40,70 22,62 15,50 L0,62 L0,18 L15,30 C22,18 40,10 60,10 Z M60,35 C63,35 65,37 65,40 C65,43 63,45 60,45 C57,45 55,43 55,40 C55,37 57,35 60,35 Z',
-        viewBox: '0 0 102 80',
-      },
-      {
-        // Cat sitting silhouette: triangular ears, round head, compact body with paws
-        id: 'cat-silhouette',
-        name: 'Cat',
-        pathData: 'M35,30 L28,8 L48,22 C44,18 50,15 56,18 L72,8 L65,30 C70,34 74,40 74,48 C74,64 63,76 50,76 C37,76 26,64 26,48 C26,40 30,34 35,30 Z M50,76 C38,76 30,80 26,86 L26,96 L74,96 L74,86 C70,80 62,76 50,76 Z M50,76 L44,96 M50,76 L56,96',
+        pathData: 'M62,18 C82,18 96,32 96,50 C96,68 82,82 62,82 C46,82 28,74 22,58 L4,70 L14,50 L4,30 L22,42 C28,26 46,18 62,18 Z',
         viewBox: '0 0 100 100',
       },
       {
-        // Dog sitting silhouette: round head, floppy ear, oval body, stubby legs
-        id: 'dog-silhouette',
-        name: 'Dog',
-        pathData: 'M62,8 C74,8 84,18 84,30 C84,38 80,44 74,48 C80,52 84,60 84,68 C84,80 76,88 62,90 L62,100 L55,100 L55,90 C52,90 48,90 45,90 L45,100 L38,100 L38,90 C24,88 16,80 16,68 C16,60 20,52 26,48 C20,44 16,38 16,30 C16,18 26,8 38,8 C34,4 42,0 50,2 C58,0 66,4 62,8 Z M36,22 C32,22 28,26 32,30 C38,32 44,28 44,24 C44,20 40,20 36,22 Z',
-        viewBox: '0 0 100 104',
-      },
-      {
-        // Bird on branch: round body, wing, tail, head with beak
-        id: 'bird',
+        // Bird: side-profile songbird facing right — round body, visible wing, beak tip at right
+        id: 'bird-silhouette',
         name: 'Bird',
-        pathData: 'M55,15 C68,15 80,24 80,38 C80,46 76,53 70,57 L82,65 L60,62 C58,63 56,63 54,63 C40,63 28,52 28,38 C28,24 40,15 55,15 Z M28,38 C20,34 8,36 2,42 C10,44 20,42 26,46 Z M55,10 C58,4 64,2 68,6 C64,8 60,12 58,16 Z',
-        viewBox: '0 0 88 68',
+        pathData: 'M90,38 C86,26 76,18 64,22 C58,14 50,12 46,18 C50,24 52,30 50,34 C42,26 30,22 18,26 C8,30 4,42 6,54 C8,66 18,74 30,74 L14,88 L36,76 C48,82 62,80 72,70 C80,62 84,50 84,42 C88,42 92,40 90,38 Z',
+        viewBox: '0 0 100 100',
       },
       {
-        // Butterfly: top wings + bottom wings + body — classic symmetrical clipart
+        // Butterfly: 4 curved wings meeting at center, symmetric
         id: 'butterfly',
         name: 'Butterfly',
-        pathData: 'M50,38 C44,26 26,10 10,12 C2,18 4,34 14,42 C24,50 40,46 50,38 Z M50,38 C56,26 74,10 90,12 C98,18 96,34 86,42 C76,50 60,46 50,38 Z M50,38 C44,50 42,66 44,76 C46,82 54,82 56,76 C58,66 56,50 50,38 Z M50,38 C38,44 28,56 30,66 C32,72 38,72 46,66 Z M50,38 C62,44 72,56 70,66 C68,72 62,72 54,66 Z M47,20 C47,14 53,14 53,20 L53,38 L47,38 Z',
-        viewBox: '0 0 100 86',
+        pathData: 'M50,44 C42,34 22,18 10,28 C2,36 8,52 22,56 C34,60 46,54 50,50 Z M50,44 C58,34 78,18 90,28 C98,36 92,52 78,56 C66,60 54,54 50,50 Z M50,50 C44,58 30,64 24,74 C18,84 26,92 36,88 C44,84 50,72 50,64 Z M50,50 C56,58 70,64 76,74 C82,84 74,92 64,88 C56,84 50,72 50,64 Z',
+        viewBox: '0 0 100 96',
+      },
+      {
+        // Horse head: side profile — long nose, eye, mane at top
+        id: 'horse-head',
+        name: 'Horse',
+        pathData: 'M50,6 C60,6 70,10 74,20 C80,18 88,22 90,34 C88,44 80,50 72,52 C78,60 82,72 80,82 C78,90 70,94 62,90 C56,86 52,78 54,70 C46,68 36,70 28,64 C20,58 18,48 22,40 C26,28 34,18 42,18 C38,10 44,6 50,6 Z',
+        viewBox: '0 0 100 100',
       },
     ],
   },

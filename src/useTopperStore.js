@@ -35,12 +35,15 @@ const DEFAULT_STATE = {
   // Support sticks
   stickCount: 2,
   stick1X: 28,
-  stick1Y: 0,            // vertical offset for stick 1 (-80 to 80px)
   stick2X: 72,
-  stick2Y: 0,            // vertical offset for stick 2 (-80 to 80px)
+  stick1Y: 0,            // per-stick vertical offset for stick 1
+  stick2Y: 0,            // per-stick vertical offset for stick 2
   stickWidth: 16,        // ~5mm — properly grippable
   stickLength: 260,      // ~82mm — deep enough to anchor in a tall cake
   stickTip: 'pointed',   // 'flat', 'rounded', 'pointed'
+
+  // Frame connector options
+  showInternalBar: true, // whether to add connecting bars inside frame shapes
 
   // Preview color (changes the visual preview; export is always single fill)
   previewColor: '#1e1b4b',
