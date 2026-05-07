@@ -521,7 +521,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const assetPaths = []
       state.placedAssets.forEach((asset) => {
         try {
-          const p = new scope.CompoundPath(asset.path)
+          const p = new scope.CompoundPath(asset.path || asset.pathData)
           p.fillRule = 'evenodd'
           const [, , vbW, vbH] = asset.viewBox.split(' ').map(Number)
           const baseScale = 80 / Math.max(vbW, vbH)

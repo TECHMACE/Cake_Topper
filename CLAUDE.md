@@ -212,20 +212,7 @@ Each asset entry:
 
 ## Known Remaining Issues
 
-1. **Frame connectors (circle/rect/diamond) show "Gaps Found"** — middle letters of a word
-   don't touch the frame ring, so they're isolated. Auto Fit generates large padding but
-   can't fix words where no letter is tall/wide enough to reach the frame.
-   **Fix needed:** for frame modes, also add an internal thin baseline bar so letters
-   connect to each other (and the bar ends reach the inner frame edge).
-
-2. **Stick drag interferes with asset dragging near stick handles** — the amber ● DOM
-   overlays are 20×20 px at z-index 10. Clicking an asset whose bounding area overlaps
-   a stick handle accidentally starts a stick drag.
-   **Fix needed:** add circular hit-test in `handleStickMouseDown` so off-center clicks
-   fall through to the canvas `handleMouseDown`.
-
-3. **Pet icons could be more recognizable** — current SVG paths are valid but look
-   abstract at the small thumbnail size. Consider retracing with simpler geometric shapes.
+None currently tracked.
 
 ---
 

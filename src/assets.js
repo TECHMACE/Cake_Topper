@@ -1,10 +1,13 @@
-// SVG path data for the asset library
-// All paths are designed for clean cutting - solid shapes, no thin lines
+// SVG path data for the asset library.
+// All paths are laser-cut safe: every sub-path is closed with Z, circles use
+// the two-half-arc form so Paper.js always closes them, and outline icons
+// rely on the evenodd fill rule (inner sub-paths become holes).
+// Canvas.jsx reads `asset.path`. Keep only { id, name, path, viewBox }.
 
 export const ASSET_CATEGORIES = {
   celebration: {
     label: 'Celebration',
-    icon: '🎉',
+    icon: '\u{1F389}',
     assets: [
       {
         id: 'star-5',
@@ -19,49 +22,56 @@ export const ASSET_CATEGORIES = {
         viewBox: '0 0 100 92',
       },
       {
-        id: 'rings',
-        name: 'Wedding Rings',
-        path: 'M35,50 C35,28 15,10 35,10 C48,10 58,20 58,35 M65,50 C65,28 85,10 65,10 C52,10 42,20 42,35 M35,10 A25,25 0 1,1 35,60 A25,25 0 1,1 35,10 M65,10 A25,25 0 1,1 65,60 A25,25 0 1,1 65,10',
-        // Simplified rings as two overlapping circles with thick stroke
-        svgMarkup: `<g><circle cx="33" cy="35" r="22" fill="none" stroke="black" stroke-width="8"/><circle cx="67" cy="35" r="22" fill="none" stroke="black" stroke-width="8"/></g>`,
-        pathData: 'M33,13 A22,22 0 1,0 33,57 A22,22 0 1,0 33,13 Z M33,5 A30,30 0 1,1 33,65 A30,30 0 1,1 33,5 Z M67,13 A22,22 0 1,0 67,57 A22,22 0 1,0 67,13 Z M67,5 A30,30 0 1,1 67,65 A30,30 0 1,1 67,5 Z',
-        viewBox: '0 0 100 70',
-      },
-      {
-        id: 'champagne',
-        name: 'Champagne Flute',
-        path: 'M40,0 L60,0 L55,35 Q50,42 50,50 L50,80 L40,80 L40,50 Q40,42 35,35 Z M30,80 L60,80 L60,88 L30,88 Z',
-        viewBox: '0 0 90 90',
-      },
-      {
-        id: 'grad-cap',
-        name: 'Graduation Cap',
-        path: 'M50,10 L5,30 L50,50 L95,30 Z M20,35 L20,60 Q35,75 50,75 Q65,75 80,60 L80,35 L50,50 Z M85,30 L85,55 L88,55 L88,30 Z',
-        viewBox: '0 0 100 80',
-      },
-      {
-        id: 'banner',
-        name: 'Banner',
-        path: 'M10,15 L90,15 L90,55 L50,70 L10,55 Z M0,10 L15,10 L15,50 L0,40 Z M85,10 L100,10 L100,40 L85,50 Z',
-        viewBox: '0 0 100 75',
-      },
-      {
+        // Outline balloon: oval outer + oval inner (hollow) + solid knot + curly string
         id: 'balloon',
         name: 'Balloon',
-        path: 'M50,5 C20,5 5,25 5,45 C5,65 25,80 50,80 C75,80 95,65 95,45 C95,25 80,5 50,5 Z M48,80 L52,80 L55,90 L45,90 Z',
-        viewBox: '0 0 100 95',
+        path: 'M50,4 C26,4 8,22 8,46 C8,68 26,82 46,84 L46,90 L54,90 L54,84 C74,82 92,68 92,46 C92,22 74,4 50,4 Z M50,16 C32,16 20,30 20,46 C20,62 32,74 50,74 C68,74 80,62 80,46 C80,30 68,16 50,16 Z M44,90 L56,90 L58,98 L42,98 Z M50,98 C46,104 56,108 52,114 C48,120 58,124 54,130 L48,130 C52,124 42,120 46,114 C50,108 40,104 44,98 Z',
+        viewBox: '0 0 100 132',
       },
       {
         id: 'crown',
         name: 'Crown',
-        path: 'M10,70 L10,30 L30,50 L50,20 L70,50 L90,30 L90,70 Z M5,70 L95,70 L95,80 L5,80 Z',
-        viewBox: '0 0 100 85',
+        path: 'M8,72 L14,28 L32,50 L50,18 L68,50 L86,28 L92,72 Z M4,72 L96,72 L96,86 L4,86 Z',
+        viewBox: '0 0 100 90',
       },
       {
-        id: 'diamond',
+        // Champagne flute silhouette: tulip bowl + thin stem + flat rectangular base
+        id: 'champagne',
+        name: 'Champagne Flute',
+        path: 'M30,4 L70,4 L68,28 C68,48 62,62 54,66 L54,100 C54,102 58,103 62,104 L62,112 L38,112 L38,104 C42,103 46,102 46,100 L46,66 C38,62 32,48 32,28 Z M22,112 L78,112 L78,122 L22,122 Z',
+        viewBox: '0 0 100 126',
+      },
+      {
+        // Faceted diamond gem: hexagonal outer with triangular facet cutouts.
+        // Outer rim = flat top (20,20)-(80,20), angled sides to point at (50,98).
+        // Inner: top band is divided into 4 triangle cutouts, lower section has
+        // 3 triangular cutouts forming the classic brilliant-cut look.
+        id: 'diamond-gem',
         name: 'Diamond',
-        path: 'M50,5 L90,35 L50,95 L10,35 Z M10,35 L90,35',
-        viewBox: '0 0 100 100',
+        path: 'M20,20 L80,20 L96,44 L50,98 L4,44 Z M24,26 L35,40 L14,40 Z M37,26 L49,26 L43,40 Z M51,26 L63,26 L57,40 Z M65,26 L76,26 L66,40 Z M14,46 L38,46 L48,92 Z M40,46 L60,46 L50,90 Z M62,46 L86,46 L52,92 Z',
+        viewBox: '0 0 100 102',
+      },
+      {
+        // Wedding ring: outer silhouette combining a circular band with a
+        // faceted diamond gem perched on top. They share one edge (y=44) so
+        // evenodd never double-counts. Inner sub-path = ring hole.
+        id: 'wedding-ring',
+        name: 'Wedding Ring',
+        path: 'M30,44 L22,14 L50,8 L78,14 L70,44 C86,50 96,62 96,78 C96,96 74,108 50,108 C26,108 4,96 4,78 C4,62 14,50 30,44 Z M50,60 C36,60 24,68 24,78 C24,88 36,96 50,96 C64,96 76,88 76,78 C76,68 64,60 50,60 Z',
+        viewBox: '0 0 100 116',
+      },
+      {
+        id: 'grad-cap',
+        name: 'Graduation Cap',
+        path: 'M50,10 L5,30 L50,50 L95,30 Z M20,38 L20,60 Q35,75 50,75 Q65,75 80,60 L80,38 L50,52 Z M85,32 L85,56 L88,60 L82,60 L85,56 L85,54 L88,54 L88,32 Z',
+        viewBox: '0 0 100 80',
+      },
+      {
+        // Ribbon banner: center rectangle + V-notch pennant ends
+        id: 'banner',
+        name: 'Banner',
+        path: 'M12,14 L88,14 L88,52 L12,52 Z M12,14 L2,8 L2,46 L12,40 Z M88,14 L98,8 L98,46 L88,40 Z M2,46 L12,40 L12,58 Z M98,46 L88,40 L88,58 Z',
+        viewBox: '0 0 100 62',
       },
       {
         id: 'number-1',
@@ -73,69 +83,87 @@ export const ASSET_CATEGORIES = {
   },
   pets: {
     label: 'Pets & Animals',
-    icon: '🐾',
+    icon: '\u{1F43E}',
     assets: [
       {
-        // 5 separate ovals: large palm + 4 round toes. All within 0-100.
+        // Paw print: main pad (big oval) + 4 toe beans (vertical ovals).
+        // Drawn as 5 solid filled shapes that look like a paw but are
+        // physically separate cut pieces. Each uses two half-arcs for closure.
+        // Toes sized/spaced so none overlap (evenodd would carve holes).
         id: 'paw-print',
         name: 'Paw Print',
-        pathData: 'M28,75 A22,15 0 0,1 72,75 A22,15 0 0,1 28,75 Z M11,52 A9,9 0 0,1 29,52 A9,9 0 0,1 11,52 Z M28,42 A9,9 0 0,1 46,42 A9,9 0 0,1 28,42 Z M54,42 A9,9 0 0,1 72,42 A9,9 0 0,1 54,42 Z M71,52 A9,9 0 0,1 89,52 A9,9 0 0,1 71,52 Z',
-        viewBox: '0 0 100 100',
+        path: 'M10,70 A24,18 0 1,0 82,70 A24,18 0 1,0 10,70 Z M4,38 A9,13 0 1,0 22,38 A9,13 0 1,0 4,38 Z M70,38 A9,13 0 1,0 88,38 A9,13 0 1,0 70,38 Z M25,22 A9,13 0 1,0 43,22 A9,13 0 1,0 25,22 Z M49,22 A9,13 0 1,0 67,22 A9,13 0 1,0 49,22 Z',
+        viewBox: '0 0 96 92',
       },
       {
-        // Classic dog bone: shaft + 2 round bumps on each end
+        // Solid dog bone: horizontal shaft with rounded bumps at each end.
+        // One continuous closed silhouette traced clockwise.
         id: 'dog-bone',
         name: 'Dog Bone',
-        pathData: 'M30,42 C22,32 6,34 6,50 C6,66 22,68 30,58 L70,58 C78,68 94,66 94,50 C94,34 78,32 70,42 Z',
-        viewBox: '0 0 100 100',
+        path: 'M22,10 C12,10 4,18 4,28 C4,38 10,44 18,46 C10,48 4,54 4,64 C4,74 12,82 22,82 C32,82 38,76 38,68 L62,68 C62,76 68,82 78,82 C88,82 96,74 96,64 C96,54 90,48 82,46 C90,44 96,38 96,28 C96,18 88,10 78,10 C68,10 62,16 62,24 L38,24 C38,16 32,10 22,10 Z',
+        viewBox: '0 0 100 92',
       },
       {
-        // Dog face: round head with wide FLOPPY ears extending to the sides (not pointed up)
-        id: 'dog-face',
+        // Sitting dog silhouette: head + floppy ear, long neck/chest, front leg,
+        // haunch, curled tail. Single closed path.
+        id: 'dog',
         name: 'Dog',
-        pathData: 'M50,10 C64,10 76,16 80,28 C86,22 96,26 96,40 C96,54 88,62 78,60 C80,70 80,82 72,88 C64,94 56,90 50,88 C44,90 36,94 28,88 C20,82 20,70 22,60 C12,62 4,54 4,40 C4,26 14,22 20,28 C24,16 36,10 50,10 Z',
+        path: 'M18,30 C18,22 22,14 30,14 C36,14 40,18 42,22 C46,20 52,18 58,20 C64,22 66,26 66,30 C66,34 64,40 58,42 C56,46 54,50 54,54 C56,56 58,60 58,66 L58,86 C62,84 68,82 72,84 C76,86 80,90 82,92 C84,94 80,96 76,96 L44,96 L42,94 C40,92 38,90 38,86 L38,70 C36,72 34,76 34,82 L34,94 L32,96 L20,96 L18,94 L18,80 C18,70 22,60 28,54 L28,46 C24,44 20,40 18,34 Z',
         viewBox: '0 0 100 100',
       },
       {
-        // Cat face: round head with two POINTED triangular ears sticking straight up
-        id: 'cat-face',
+        // Sitting cat silhouette: two triangle ears, round head, sinuous body
+        // curving down to haunch with long curled tail at right.
+        id: 'cat',
         name: 'Cat',
-        pathData: 'M50,20 L76,4 L72,30 C84,32 94,42 94,56 C94,72 82,84 66,88 C60,92 56,92 50,92 C44,92 40,92 34,88 C18,84 6,72 6,56 C6,42 16,32 28,30 L24,4 Z',
-        viewBox: '0 0 100 96',
+        path: 'M22,20 L30,4 L36,20 C38,18 42,16 46,16 L46,8 L52,22 C58,24 62,30 62,38 C62,42 60,46 58,48 C60,52 60,56 58,60 L56,72 C58,76 60,82 62,88 C66,86 72,84 76,84 C82,84 88,86 90,88 L92,90 L90,92 C88,92 84,92 82,94 L80,96 L42,96 L40,94 C38,90 38,84 40,80 C38,76 36,72 36,68 L36,56 C34,50 30,44 28,38 C24,36 20,30 20,24 Z',
+        viewBox: '0 0 100 100',
       },
       {
-        // Rabbit: connected silhouette with two very tall upright ears + round body
+        // Cat head: wide rounded face + two triangular pointy ears on top.
+        id: 'cat-head',
+        name: 'Cat Head',
+        path: 'M14,30 L26,6 L38,24 C42,22 48,20 54,20 C60,20 66,22 70,24 L82,6 L94,30 C96,36 96,44 94,52 C90,68 72,82 54,82 C36,82 18,68 14,52 C12,44 12,36 14,30 Z',
+        viewBox: '0 0 100 88',
+      },
+      {
+        // Sitting rabbit silhouette: tall ears, round head, small front paw,
+        // round haunch, puff tail. Single closed shape.
         id: 'rabbit',
         name: 'Rabbit',
-        pathData: 'M38,8 C44,8 46,20 44,40 C47,38 53,38 56,40 C54,20 56,8 62,8 C68,8 70,18 70,28 C70,38 66,42 62,44 C72,52 78,64 78,76 C78,90 66,98 50,98 C34,98 22,90 22,76 C22,64 28,52 38,44 C34,42 30,38 30,28 C30,18 32,8 38,8 Z',
+        path: 'M26,8 C24,4 28,2 32,4 C36,6 40,18 40,32 L40,44 C42,42 44,40 46,38 C46,28 50,16 54,8 C58,2 62,4 62,10 C62,18 58,28 54,38 C56,40 58,44 58,48 L58,56 C60,54 64,52 68,52 C74,52 80,56 84,62 C88,68 90,76 90,84 C90,90 88,94 84,94 L72,94 C70,92 68,88 68,86 C66,90 62,94 58,94 L30,94 C26,94 24,92 24,88 C24,82 28,76 32,72 L32,60 C28,58 24,54 22,48 C20,42 20,36 22,30 L22,24 C22,18 24,12 26,8 Z',
         viewBox: '0 0 100 100',
       },
       {
-        // Fish: oval body facing right, forked tail on the left
+        // Fish silhouette facing right: oval body + forked tail on left,
+        // top and bottom fins, small pointed snout.
         id: 'fish',
         name: 'Fish',
-        pathData: 'M62,18 C82,18 96,32 96,50 C96,68 82,82 62,82 C46,82 28,74 22,58 L4,70 L14,50 L4,30 L22,42 C28,26 46,18 62,18 Z',
+        path: 'M96,50 C96,36 82,24 62,24 C50,24 40,28 32,34 C30,28 34,22 30,20 C26,18 22,22 22,28 C22,32 24,36 26,40 L14,26 L22,46 L6,46 L22,54 L14,74 L26,60 C24,64 22,68 22,72 C22,78 26,82 30,80 C34,78 30,72 32,66 C40,72 50,76 62,76 C82,76 96,64 96,50 Z',
         viewBox: '0 0 100 100',
       },
       {
-        // Bird: side-profile songbird facing right — round body, visible wing, beak tip at right
-        id: 'bird-silhouette',
+        // Bird on branch: round body, raised head, small beak, pointed tail,
+        // joined to a horizontal branch across the bottom.
+        id: 'bird',
         name: 'Bird',
-        pathData: 'M90,38 C86,26 76,18 64,22 C58,14 50,12 46,18 C50,24 52,30 50,34 C42,26 30,22 18,26 C8,30 4,42 6,54 C8,66 18,74 30,74 L14,88 L36,76 C48,82 62,80 72,70 C80,62 84,50 84,42 C88,42 92,40 90,38 Z',
+        path: 'M52,8 C56,6 60,10 60,16 L66,14 L60,22 C64,26 66,32 66,38 C70,42 72,48 72,56 C72,66 68,74 60,80 L60,88 L92,88 L92,94 L8,94 L8,88 L28,88 L28,80 C22,78 16,74 12,68 L4,72 L10,64 C8,60 8,56 10,52 L4,48 L12,46 C16,42 22,40 30,42 C32,34 40,28 50,28 C50,22 50,14 50,10 C50,9 51,8 52,8 Z',
         viewBox: '0 0 100 100',
       },
       {
-        // Butterfly: 4 curved wings meeting at center, symmetric
+        // Butterfly: solid body stripe + two upper wings + two lower wings,
+        // antennae on top. Kept as a robust solid silhouette (no thin holes).
         id: 'butterfly',
         name: 'Butterfly',
-        pathData: 'M50,44 C42,34 22,18 10,28 C2,36 8,52 22,56 C34,60 46,54 50,50 Z M50,44 C58,34 78,18 90,28 C98,36 92,52 78,56 C66,60 54,54 50,50 Z M50,50 C44,58 30,64 24,74 C18,84 26,92 36,88 C44,84 50,72 50,64 Z M50,50 C56,58 70,64 76,74 C82,84 74,92 64,88 C56,84 50,72 50,64 Z',
-        viewBox: '0 0 100 96',
+        path: 'M48,6 C44,2 38,4 38,10 C38,12 42,14 46,16 L46,22 C40,18 32,14 24,14 C14,14 6,22 6,32 C6,42 12,50 22,52 C30,54 40,52 46,48 L46,58 C38,62 28,62 20,66 C10,72 6,80 10,88 C14,96 24,94 32,90 C40,86 44,82 46,78 L46,82 C44,86 44,90 48,92 L52,92 C56,90 56,86 54,82 L54,78 C56,82 60,86 68,90 C76,94 86,96 90,88 C94,80 90,72 80,66 C72,62 62,62 54,58 L54,48 C60,52 70,54 78,52 C88,50 94,42 94,32 C94,22 86,14 76,14 C68,14 60,18 54,22 L54,16 C58,14 62,12 62,10 C62,4 56,2 52,6 L52,10 L48,10 Z',
+        viewBox: '0 0 100 100',
       },
       {
-        // Horse head: side profile — long nose, eye, mane at top
-        id: 'horse-head',
+        // Rearing horse silhouette: raised front legs, arched neck with mane,
+        // planted hind legs, flowing tail. Single closed path.
+        id: 'horse',
         name: 'Horse',
-        pathData: 'M50,6 C60,6 70,10 74,20 C80,18 88,22 90,34 C88,44 80,50 72,52 C78,60 82,72 80,82 C78,90 70,94 62,90 C56,86 52,78 54,70 C46,68 36,70 28,64 C20,58 18,48 22,40 C26,28 34,18 42,18 C38,10 44,6 50,6 Z',
+        path: 'M38,14 L42,6 L46,14 L52,8 L52,18 L58,14 L56,22 C62,26 66,32 68,40 C70,36 74,32 78,32 L76,40 L82,38 L78,46 C80,52 78,58 76,62 L82,66 L78,70 L84,74 L80,78 L86,84 L84,92 L78,92 L74,86 C72,82 70,76 70,72 C64,70 60,66 58,62 L56,72 L60,82 L64,92 L58,92 L56,84 L54,92 L50,92 L50,82 L46,92 L42,92 L42,82 C42,76 44,70 46,64 L40,60 C34,58 30,52 30,46 C26,50 22,58 22,68 L22,80 C20,84 16,86 12,84 L14,78 L10,76 L14,72 L10,68 L16,64 L14,58 C14,48 20,38 28,34 L24,24 L22,28 L22,18 L28,22 L26,12 L34,18 L34,8 Z',
         viewBox: '0 0 100 100',
       },
     ],

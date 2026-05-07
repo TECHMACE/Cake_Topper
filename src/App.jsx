@@ -64,7 +64,7 @@ export default function App() {
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Left Panel — tab navigation + content */}
-        <div className="w-64 flex-shrink-0 flex flex-col bg-white border-r border-gray-200 shadow-sm">
+        <div className="w-80 flex-shrink-0 flex flex-col bg-white border-r border-gray-200 shadow-sm">
           {/* Tab bar */}
           <div className="flex border-b border-gray-100 bg-gray-50/50">
             {TABS.map((tab) => (
