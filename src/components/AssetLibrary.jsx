@@ -125,7 +125,8 @@ export function AssetLibrary({ store }) {
   const { state } = store
 
   const handleAdd = (assetDef) => {
-    store.addAsset(assetDef, 0, -20)
+    // Drop below the text center so it's immediately visible and easy to grab
+    store.addAsset(assetDef, 0, 130)
   }
 
   return (

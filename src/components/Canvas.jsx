@@ -101,23 +101,27 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const centerY = CANVAS_H * 0.32 + state.textY
 
       // --- DECORATIVE CAKE HINT ---
-      // Draw a soft cake silhouette at the very bottom of the canvas so users
-      // can visualise the topper sitting on a real cake tier.
+      // Cake tier scales with outputWidthInches so the user gets live feedback
+      // on how their topper size relates to the cake beneath it.
+      // Reference: a 14" cake fills edge-to-edge; smaller cakes shrink proportionally.
       const bgLayer = new scope.Layer()
       bgLayer.name = 'bg'
       {
+        const REF_CAKE_IN = 14
+        const cakePxW = Math.min(CANVAS_W - 40,
+          Math.max(120, (state.outputWidthInches / REF_CAKE_IN) * (CANVAS_W - 40)))
+        const cakeLeft = (CANVAS_W - cakePxW) / 2
         const cakeTop = CANVAS_H - 48
         const cake = new scope.Path.Rectangle(
-          new scope.Rectangle(40, cakeTop, CANVAS_W - 80, 48),
-          new scope.Size(10, 10) // corner radius
+          new scope.Rectangle(cakeLeft, cakeTop, cakePxW, 48),
+          new scope.Size(10, 10)
         )
         cake.fillColor = new scope.Color('#fdf2e9')
         cake.strokeColor = new scope.Color('#f0cba8')
         cake.strokeWidth = 1.5
-        // Frosting top squiggle (simple scallop line)
         const scallop = new scope.Path()
-        scallop.moveTo(new scope.Point(40, cakeTop + 6))
-        for (let sx = 40; sx <= CANVAS_W - 80; sx += 20) {
+        scallop.moveTo(new scope.Point(cakeLeft, cakeTop + 6))
+        for (let sx = cakeLeft; sx <= cakeLeft + cakePxW; sx += 20) {
           scallop.cubicCurveTo(
             new scope.Point(sx + 5, cakeTop - 2),
             new scope.Point(sx + 15, cakeTop - 2),
@@ -540,10 +544,15 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               textPath.bounds.expand(10).intersects(ap.path.bounds)) {
             try {
               if (!textPath.bounds.intersects(ap.path.bounds)) {
-                const bridgeX = (textPath.bounds.center.x + ap.path.bounds.center.x) / 2
-                const bridgeY = Math.min(textPath.bounds.bottom, ap.path.bounds.bottom)
+                // Find the actual nearest points between text and asset for a
+                // precise bridge. Fall back to bounds midpoint if unavailable.
+                const tNearest = textPath.getNearestPoint(ap.path.bounds.center)
+                const aNearest = ap.path.getNearestPoint(tNearest)
+                const bx = (tNearest.x + aNearest.x) / 2
+                const by = (tNearest.y + aNearest.y) / 2
+                const bw = Math.max(10, ap.path.bounds.width * 0.20)
                 const bridge = new scope.Path.Rectangle(
-                  new scope.Rectangle(bridgeX - 2, bridgeY - 4, 4, 8)
+                  new scope.Rectangle(bx - bw / 2, by - 6, bw, 12)
                 )
                 bridge.fillColor = FILL
                 const temp = textPath.unite(bridge)
@@ -688,8 +697,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           let bridgeAttempts = 0
           // Plaque mode has many counter-form islands (insides of O, B, D, P, etc.)
           const MAX_BRIDGE_ATTEMPTS = (connType === 'rectangle' || connType === 'circle' || connType === 'diamond' || connType === 'freeform') ? 80 : 30
-          // Minimum bridge width: 4px ≈ 1.3mm at 10" output — hairline but survivable
-          const MIN_BRIDGE_PX = 4
+          // Minimum bridge width: 8px ≈ 2.5mm at 10" output — structurally sound
+          const MIN_BRIDGE_PX = 8
 
           while (needsBridging && bridgeAttempts < MAX_BRIDGE_ATTEMPTS) {
             bridgeAttempts++
@@ -713,8 +722,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               const dy = mainNearest.y - contourNearest.y
               const dist = Math.sqrt(dx * dx + dy * dy)
               // Scale bridge width to the isolated contour — larger pieces need wider bridges
-              const maxBW = (connType === 'none' || connType === 'baseline') ? 8 : Math.max(8, contour.bounds.width * 0.25)
-              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(maxBW, contour.bounds.width * 0.25))
+              const maxBW = (connType === 'none' || connType === 'baseline') ? 12 : Math.max(12, contour.bounds.width * 0.30)
+              const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(maxBW, contour.bounds.width * 0.30))
 
               let bridge
               if (dist < 1) {
@@ -1009,9 +1018,9 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       }
 
       // ── 2. Line height for multi-line ─────────────────────────────────────
-      // 0.62 forces descenders of line 1 to physically overlap ascenders of line 2
-      const lineHeight = isMultiLine ? 0.62 : s.lineHeight
-
+      // Baseline mode: force overlap (0.62) so every descender touches the bar.
+      // Frame modes: preserve the user's lineHeight — the frame + internal bar
+      // handles connectivity without requiring lines to physically overlap.
       const updates = {
         fontSize,
         textX: 0,
@@ -1020,23 +1029,20 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         stick1Y: 0,
         stick2Y: 0,
       }
-      if (isMultiLine) updates.lineHeight = lineHeight
+      if (isMultiLine && connType === 'baseline') updates.lineHeight = 0.62
 
       // ── 3. Per-connection-type fixes ──────────────────────────────────────
       if (connType === 'baseline') {
-        // Bar must be thick enough to connect letter descenders to bar
         const barH = Math.max(10, Math.round(fontSize * 0.12))
-        // Bite deep into letter bottoms so every descender welds to bar
         updates.baselineHeight = barH
         updates.baselineOffset = -Math.round(barH * 0.75)
       } else if (isFrameMode) {
-        // Frame padding: must be large enough for internal bars to reach inner ring edge
-        // Also ensure bars are tall enough to span the full frame inner width
-        const pad = Math.max(24, Math.round(fontSize * 0.30))
+        // Without internal bar: tighter padding so letters reach the ring directly.
+        // With internal bar: generous padding so bars span the inner ring width.
+        const hasBar = s.showInternalBar !== false
+        const pad = Math.max(20, Math.round(fontSize * (hasBar ? 0.30 : 0.18)))
         updates.baseShapePadding = pad
-        // Make sure internal bar is on when auto-fitting frame modes
-        // (user may have turned it off; warn them via the connection check)
-        updates.showInternalBar = true
+        // Never override the user's showInternalBar choice here.
       }
 
       // ── 4. Sticks ─────────────────────────────────────────────────────────
