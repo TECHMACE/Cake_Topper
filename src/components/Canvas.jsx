@@ -772,7 +772,20 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         let connected = true
         if (finalPath.className === 'CompoundPath' && finalPath.children) {
           const outerContours = finalPath.children.filter(c => c.clockwise)
-          if (outerContours.length > 1) connected = false
+          if (outerContours.length > 1) {
+            if (noBarFrameMode) {
+              // Letters are intentionally separate sub-paths inside the ring.
+              // Only flag truly isolated contours whose center lies OUTSIDE the
+              // main ring body — those would physically fall out when cut.
+              const mainRing = outerContours.reduce((a, b) =>
+                a.bounds.area > b.bounds.area ? a : b)
+              const trulyIsolated = outerContours.filter(c =>
+                c !== mainRing && !mainRing.bounds.contains(c.bounds.center))
+              if (trulyIsolated.length > 0) connected = false
+            } else {
+              connected = false
+            }
+          }
         }
 
         if (!connected) {
@@ -1005,8 +1018,15 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const connType = s.connectionType || 'baseline'
       const isFrameMode = connType !== 'baseline' && connType !== 'none'
 
-      // ── 1. Font size: target 65% canvas width (multi-line) or 74% (single) ──
-      const TARGET_W = CANVAS_W * (isFrameMode ? 0.55 : isMultiLine ? 0.65 : 0.74)
+      // ── 1. Font size ──────────────────────────────────────────────────────────
+      // No-bar frame mode: larger target so letters reach the ring inner edge.
+      // Bar frame mode: smaller target leaves room for the bar to span the ring.
+      const hasBar = s.showInternalBar !== false
+      const TARGET_W = CANVAS_W * (
+        isFrameMode
+          ? (hasBar ? 0.55 : 0.70)
+          : isMultiLine ? 0.65 : 0.74
+      )
       const REF_SIZE = 100
       const ls = s.letterSpacing  // preserve user's spacing
       const widths = lines.map(l => getTextMetrics(font, l, REF_SIZE, ls).width)
@@ -1037,10 +1057,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         updates.baselineHeight = barH
         updates.baselineOffset = -Math.round(barH * 0.75)
       } else if (isFrameMode) {
-        // Without internal bar: tighter padding so letters reach the ring directly.
-        // With internal bar: generous padding so bars span the inner ring width.
-        const hasBar = s.showInternalBar !== false
-        const pad = Math.max(20, Math.round(fontSize * (hasBar ? 0.30 : 0.18)))
+        // No-bar: minimal padding (10px ≈ ring thickness) so the inner ring
+        // edge lands right at the text boundary — maximises letter contact.
+        // With bar: generous padding lets the bar span the full inner width.
+        const pad = hasBar ? Math.max(20, Math.round(fontSize * 0.30)) : 10
         updates.baseShapePadding = pad
         // Never override the user's showInternalBar choice here.
       }
