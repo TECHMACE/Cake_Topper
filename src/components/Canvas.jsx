@@ -770,18 +770,19 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
         // Check connectivity
         let connected = true
+        const isFrameConnector = connType !== 'baseline' && connType !== 'none'
         if (finalPath.className === 'CompoundPath' && finalPath.children) {
           const outerContours = finalPath.children.filter(c => c.clockwise)
           if (outerContours.length > 1) {
-            if (noBarFrameMode) {
-              // Letters are intentionally separate sub-paths inside the ring.
-              // Only flag truly isolated contours whose center lies OUTSIDE the
-              // main ring body — those would physically fall out when cut.
+            if (isFrameConnector) {
+              // The ring IS the structural element. Only flag red when contours
+              // fall completely outside the ring — they would physically detach.
+              // Letters inside the ring floating slightly are expected and acceptable.
               const mainRing = outerContours.reduce((a, b) =>
                 a.bounds.area > b.bounds.area ? a : b)
-              const trulyIsolated = outerContours.filter(c =>
+              const outsideRing = outerContours.filter(c =>
                 c !== mainRing && !mainRing.bounds.contains(c.bounds.center))
-              if (trulyIsolated.length > 0) connected = false
+              if (outsideRing.length > 0) connected = false
             } else {
               connected = false
             }
@@ -810,15 +811,23 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         // If connected, bridges were micro-gaps that got fixed — no warning needed.
         if (!connected) {
           const isMultiLine = text.split('\n').filter(l => l.length > 0).length > 1
-          let bridgeHint
-          if (noBarFrameMode) {
-            bridgeHint = 'Letters not touching frame — increase font size, reduce padding, or turn on Internal Bar'
-          } else if (isMultiLine && connType === 'baseline') {
-            bridgeHint = 'Lines not touching — reduce Line Height or hit Auto Fit'
+          if (isMultiLine && connType === 'baseline') {
+            newWarnings.push('Lines not touching — reduce Line Height or hit Auto Fit')
           } else {
-            bridgeHint = 'Parts disconnected — enable a Bar or Shape connector'
+            newWarnings.push('Parts disconnected — widen the connector or adjust spacing')
           }
-          newWarnings.push(bridgeHint)
+        } else if (isFrameConnector && noBarFrameMode &&
+                   finalPath.className === 'CompoundPath' && finalPath.children) {
+          // Soft warning: some letters float inside the ring but the frame is solid.
+          const outers = finalPath.children.filter(c => c.clockwise)
+          if (outers.length > 1) {
+            const mainRing = outers.reduce((a, b) => a.bounds.area > b.bounds.area ? a : b)
+            const innerFloating = outers.filter(c =>
+              c !== mainRing && mainRing.bounds.contains(c.bounds.center))
+            if (innerFloating.length > 0) {
+              newWarnings.push('Some letters not welded to frame — increase font size or enable Internal Bar')
+            }
+          }
         }
 
         if (connectedRef.current !== connected) {
