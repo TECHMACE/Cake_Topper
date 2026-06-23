@@ -349,15 +349,53 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
             const frame = outerShape.subtract(innerShape)
             outerShape.remove(); innerShape.remove()
             frame.fillColor = FILL
+
+            // Add internal thin baseline bar for frame modes to connect middle letters
+            const barHeight = Math.max(8, state.baselineHeight || 12)
+            const innerBounds = innerShape.bounds
+            const radius = barHeight / 2
+
+            let frameWithBar = frame
+
+            // Create a bar for EACH line of text
+            const lines = state.text.trim().split('\n').filter(l => l.length > 0)
+            const lineHeightPx = state.fontSize * state.lineHeight
+
+            lines.forEach((line, lineIdx) => {
+              const baselineY = (CANVAS_H * 0.32 + state.textY) + lineIdx * lineHeightPx
+              const barY = baselineY + (state.baselineOffset || -6)
+
+              const frameBar = new scope.Path.Rectangle(
+                new scope.Rectangle(
+                  innerBounds.left - 2, // extend slightly to ensure union with inner edge
+                  barY,
+                  innerBounds.width + 4,
+                  barHeight
+                ),
+                new scope.Size(radius, radius)
+              )
+              frameBar.fillColor = FILL
+
+              try {
+                const united = frameWithBar.unite(frameBar)
+                frameWithBar.remove()
+                frameBar.remove()
+                frameWithBar = united
+                frameWithBar.fillColor = FILL
+              } catch {
+                frameBar.remove()
+              }
+            })
+
             if (textPath) {
-              const u = textPath.unite(frame)
-              textPath.remove(); frame.remove()
+              const u = textPath.unite(frameWithBar)
+              textPath.remove(); frameWithBar.remove()
               textPath = u
               textPath.fillColor = FILL
               textBounds = textPath.bounds.clone()
             } else {
-              textPath = frame
-              textBounds = frame.bounds.clone()
+              textPath = frameWithBar
+              textBounds = frameWithBar.bounds.clone()
             }
           } catch { outerShape.remove(); innerShape.remove() }
         }
@@ -748,6 +786,17 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
   }, [getCanvasPoint])
 
   const handleStickMouseDown = useCallback((e, handleId) => {
+    // Add circular hit-test so off-center clicks fall through to the canvas
+    const rect = e.currentTarget.getBoundingClientRect()
+    // The handle is 20x20px, so radius is 10. Center is rect.left + 10, rect.top + 10
+    const cx = rect.left + 10
+    const cy = rect.top + 10
+    const dx = e.clientX - cx
+    const dy = e.clientY - cy
+    if (Math.sqrt(dx * dx + dy * dy) > 10) {
+      return // Click is outside the visible circle
+    }
+
     e.preventDefault()
     e.stopPropagation()
     const pt = getCanvasPoint(e)
