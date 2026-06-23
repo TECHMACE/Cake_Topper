@@ -16,6 +16,7 @@ const DEFAULT_STATE = {
   textY: 0,
   arcAmount: 0, // -100 to 100: negative = valley, positive = arch over
   letterExpansion: 0,    // 0–15px: inflates letter strokes for thicker cuts
+  letterLayout: 'bunched', // None-mode letter arrangement: 'bunched' | 'varying'
 
   // Output sizing (for laser/Cricut export)
   outputWidthInches: 10, // target cut width in inches
@@ -31,6 +32,7 @@ const DEFAULT_STATE = {
   baselineHeight: 12,    // ~3.8mm — slim elegant bar (used when type=baseline)
   baselineOffset: -6,    // bite 6px up into letter bottoms for a clean weld
   baseShapePadding: 20,  // px padding around text bounds for shape backing
+  offsetMargin: 24,      // px the offset backing plate extends beyond the letters (type=offset)
 
   // Support sticks
   stickCount: 2,

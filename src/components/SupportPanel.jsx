@@ -87,6 +87,19 @@ const CONNECTION_TYPES = [
     ),
   },
   {
+    id: 'offset',
+    label: 'Backing',
+    desc: 'Offset backing plate — score the letters on it and glue the cut letters on top',
+    svg: (
+      <svg width="28" height="20" viewBox="0 0 28 20" fill="currentColor">
+        <rect x="1" y="2" width="26" height="16" rx="5" opacity="0.32"/>
+        <rect x="4" y="5" width="6" height="10" rx="1"/>
+        <rect x="12" y="5" width="3" height="10" rx="1"/>
+        <rect x="18" y="5" width="6" height="10" rx="1"/>
+      </svg>
+    ),
+  },
+  {
     id: 'circle',
     label: 'Circle',
     desc: 'Round backing plate',
@@ -194,6 +207,57 @@ export function SupportPanel({ store }) {
             className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-all ${showInch ? 'bg-violet-100 text-violet-700' : 'text-gray-400 hover:text-gray-600'}`}
           >in</button>
         </div>
+
+        {/* Options for None — letter layout */}
+        {connType === 'none' && (
+          <div className="mt-3 pl-1">
+            <label className="text-xs text-gray-500 mb-1.5 block">Letter Layout</label>
+            <div className="flex gap-1.5">
+              {[
+                { id: 'bunched', label: 'Bunched', desc: 'Letters kerned tight into one even word' },
+                { id: 'varying', label: 'Varying', desc: 'Letters bounce slightly off the baseline — playful, still one piece' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => update({ letterLayout: opt.id })}
+                  title={opt.desc}
+                  className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all ${
+                    (state.letterLayout || 'bunched') === opt.id
+                      ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-400'
+                      : 'bg-gray-50 text-gray-500 hover:bg-gray-100 ring-1 ring-transparent'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+              Letters are pulled together so they touch into one continuous cut — no thin bridges.
+            </p>
+          </div>
+        )}
+
+        {/* Options for offset backing plate */}
+        {connType === 'offset' && (
+          <div className="mt-3 pl-1 space-y-3">
+            <MmSlider
+              label="Offset Margin"
+              valuePx={state.offsetMargin}
+              min={6}
+              max={80}
+              step={2}
+              onChange={(v) => update({ offsetMargin: v })}
+              outputWidthInches={owi}
+              showInch={showInch}
+            />
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              Letters sit on top of an offset backing plate. The plate + sticks cut as one piece;
+              the letters cut separately. <span className="text-violet-600 font-medium">Download gives two SVGs</span> —
+              the plate has the letter outlines scored (blue) so you know where to glue, plus a file of the letters to cut.
+              A wider margin merges spaced-out letters into one continuous plate.
+            </p>
+          </div>
+        )}
 
         {/* Options for baseline bar */}
         {connType === 'baseline' && (

@@ -51,21 +51,22 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     fs: state.fontSize, ls: state.letterSpacing, lh: state.lineHeight,
     tx: state.textX, ty: state.textY, arc: state.arcAmount, pa: state.placedAssets,
     ct: state.connectionType, bh: state.baselineHeight, bo: state.baselineOffset,
-    bsp: state.baseShapePadding, le: state.letterExpansion,
+    bsp: state.baseShapePadding, le: state.letterExpansion, om: state.offsetMargin,
     sc: state.stickCount, s1: state.stick1X, s2: state.stick2X, s1y: state.stick1Y, s2y: state.stick2Y,
     sw: state.stickWidth, sl: state.stickLength, st: state.stickTip,
     sg: state.showGrid, sa: state.selectedAssetId,
     ow: state.outputWidthInches, pc: state.previewColor, sib: state.showInternalBar,
+    ll: state.letterLayout,
     fl: loadedFont ? 'yes' : 'no',
     lo: state.letterOffsets,
   }), [state.text, state.fontName, state.fontWeight, state.fontSize, state.letterSpacing,
     state.lineHeight, state.textX, state.textY, state.arcAmount, state.placedAssets,
     state.connectionType, state.baselineHeight, state.baselineOffset,
-    state.baseShapePadding, state.letterExpansion,
+    state.baseShapePadding, state.letterExpansion, state.offsetMargin,
     state.stickCount, state.stick1X, state.stick2X, state.stick1Y, state.stick2Y,
     state.stickWidth, state.stickLength,
     state.stickTip, state.showGrid, state.selectedAssetId, state.outputWidthInches,
-    state.previewColor, loadedFont, state.letterOffsets, state.showInternalBar])
+    state.previewColor, loadedFont, state.letterOffsets, state.showInternalBar, state.letterLayout])
 
   // Init Paper.js
   useEffect(() => {
@@ -99,6 +100,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const centerX = CANVAS_W / 2 + state.textX
       // Position text in upper-centre so sticks can extend well below
       const centerY = CANVAS_H * 0.32 + state.textY
+      const connType = state.connectionType || 'baseline'
+      // Surrounding-frame connectors (a ring around the text). 'offset' is NOT one
+      // of these — it builds a solid backing plate the letters glue onto.
+      const FRAME_TYPES = ['circle', 'rectangle', 'diamond', 'freeform']
 
       // --- DECORATIVE CAKE HINT ---
       // Cake tier scales with outputWidthInches so the user gets live feedback
@@ -184,24 +189,64 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
               // g.x is the pre-computed cumulative position for each glyph, also
               // including letterSpacing — so translate uses startX + g.x directly.
               const startX = centerX - totalWidth / 2
+              const lineItems = []
+              let lineHasOffset = false
               glyphs.forEach((g, gIdx) => {
                 if (!g.pathData) { return }
                 const key = `${lineIdx}_${gIdx}`
                 const off = state.letterOffsets?.[key] || { x: 0, y: 0 }
+                if (off.x !== 0 || off.y !== 0) lineHasOffset = true
                 try {
                   const glyphPath = new scope.CompoundPath(g.pathData)
                   glyphPath.fillRule = 'evenodd'
                   glyphPath.fillColor = FILL
                   glyphPath.translate(new scope.Point(startX + g.x + off.x, baselineY + off.y))
-                  glyphHits.push({
-                    key,
-                    cx: glyphPath.bounds.centerX,
-                    cy: glyphPath.bounds.centerY,
-                    hw: glyphPath.bounds.width / 2 + 4,
-                    hh: glyphPath.bounds.height / 2 + 4,
-                  })
-                  allLinePaths.push(glyphPath)
+                  lineItems.push({ key, path: glyphPath })
                 } catch (e) { console.warn('Flat glyph path failed:', g.char, e) }
+              })
+
+              // CONTACT SNAP (none mode): slide each glyph left until its ink
+              // overlaps the previous glyph's ink, collapsing letter gaps AND the
+              // inter-word space into one continuous, cuttable word — instead of
+              // leaving gaps that need ugly thin bridge spokes. Skipped if the user
+              // has manually dragged letters (letterOffsets), so drags are respected.
+              if (connType === 'none' && lineItems.length > 1 && !lineHasOffset) {
+                const varying = state.letterLayout === 'varying'
+                // Wider overlap when varying so the vertical bounce can't open a gap.
+                const overlap = Math.max(3, state.fontSize * (varying ? 0.12 : 0.05))
+                let runningRight = lineItems[0].path.bounds.right
+                for (let i = 1; i < lineItems.length; i++) {
+                  const p = lineItems[i].path
+                  const gap = p.bounds.left - runningRight
+                  if (gap > -overlap) p.translate(new scope.Point(-(gap + overlap), 0))
+                  runningRight = Math.max(runningRight, p.bounds.right)
+                }
+                // VARYING: nudge each glyph up/down by a smooth deterministic wave for
+                // a playful hand-made bounce. Amplitude stays small vs the wide overlap
+                // so neighbours keep sharing ink and the piece stays welded.
+                if (varying) {
+                  const amp = state.fontSize * 0.10
+                  lineItems.forEach((it, i) => {
+                    const vy = Math.sin(i * 1.3 + 0.6) * amp
+                    it.path.translate(new scope.Point(0, vy))
+                  })
+                }
+                // Re-center the now-narrower word on centerX.
+                const lineLeft = Math.min(...lineItems.map(it => it.path.bounds.left))
+                const lineRight = Math.max(...lineItems.map(it => it.path.bounds.right))
+                const dx = centerX - (lineLeft + lineRight) / 2
+                lineItems.forEach(it => it.path.translate(new scope.Point(dx, 0)))
+              }
+
+              lineItems.forEach((it) => {
+                glyphHits.push({
+                  key: it.key,
+                  cx: it.path.bounds.centerX,
+                  cy: it.path.bounds.centerY,
+                  hw: it.path.bounds.width / 2 + 4,
+                  hh: it.path.bounds.height / 2 + 4,
+                })
+                allLinePaths.push(it.path)
               })
             }
           } else {
@@ -320,16 +365,12 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       // --- CONNECTION: BASELINE BAR / BACKING SHAPE ---
       let baselinePath = null
       const isArced = (state.arcAmount || 0) !== 0
-      const connType = state.connectionType || 'baseline'
-
-      // When no internal bar in frame mode, use evenodd fill rule (unite fills the hole otherwise)
-      const noBarFrameMode = connType !== 'baseline' && connType !== 'none' && connType !== 'freeform' && state.showInternalBar === false
 
       // ── Shape connectors — surrounding FRAMES centered on the text ──────────
       // Each shape is an outer path with an inner cutout (a ring/border).
       // The frame surrounds the text; letters that touch the inner edge weld
       // to it automatically. Sticks attach at the bottom of the outer frame.
-      if (connType !== 'baseline' && connType !== 'none' && textBounds) {
+      if (FRAME_TYPES.includes(connType) && textBounds) {
         const pad = state.baseShapePadding || 20
         const cx = textBounds.center.x
         const cy = textBounds.center.y
@@ -394,24 +435,16 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
             if (!textPath) {
               textPath = frame
               textBounds = frameBounds
-            } else if (state.showInternalBar !== false) {
-              // With internal bar: unite so bars can bridge letters to frame
+            } else {
+              // Always boolean-union the frame with the text (nonzero). Letters that
+              // touch the ring weld into one piece; any that float free are welded
+              // by the auto-bridge pass below. The internal bar (if enabled) adds an
+              // explicit spanning bar; without it, bridges supply thin spokes.
               const u = textPath.unite(frame)
               textPath.remove(); frame.remove()
               textPath = u
               textPath.fillColor = FILL
               textBounds = textPath.bounds.clone()
-            } else {
-              // No internal bar: assemble as compound path with evenodd fill rule.
-              // unite() fills the ring hole when letters are inside — this avoids that.
-              const combined = new scope.CompoundPath({ fillColor: FILL, fillRule: 'evenodd' })
-              const frameKids = frame.className === 'CompoundPath' ? [...frame.children] : [frame]
-              const textKids = textPath.className === 'CompoundPath' ? [...textPath.children] : [textPath]
-              frameKids.forEach(c => combined.addChild(c.clone()))
-              textKids.forEach(c => combined.addChild(c.clone()))
-              textPath.remove(); frame.remove()
-              textPath = combined
-              textBounds = frameBounds
             }
           } catch { outerShape.remove(); innerShape.remove() }
         }
@@ -573,23 +606,79 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         textBounds = textPath.bounds.clone()
       }
 
+      // --- OFFSET BACKGROUND PLATE ---
+      // Two-piece design: the letters (+ any welded assets) are ONE cut piece glued
+      // on top of a backing plate. The plate is an offset (dilated) silhouette of the
+      // letters, so letters can keep natural spacing and still all sit on a single
+      // continuous, scored background. The plate carries the support sticks, so sticks
+      // never land in a mid-word gap — they attach to the solid plate.
+      let offsetLetterPath = null
+      if (connType === 'offset' && textPath) {
+        offsetLetterPath = textPath.clone()       // piece 2: the cut letters / score guide
+        const margin = Math.max(4, state.offsetMargin || 24)
+        // Disk-stamp dilation: stamp the silhouette around a circle of radius=margin
+        // and union them — approximates an outward path offset that merges nearby
+        // letters into one plate. 12 stamps ≈ a smooth-enough rounded outline.
+        const STEPS = 12
+        let plate = textPath.clone()
+        for (let i = 0; i < STEPS; i++) {
+          const a = (i / STEPS) * Math.PI * 2
+          const stamp = textPath.clone()
+          stamp.translate(new scope.Point(Math.cos(a) * margin, Math.sin(a) * margin))
+          try { const u = plate.unite(stamp); plate.remove(); stamp.remove(); plate = u }
+          catch { stamp.remove() }
+        }
+        textPath.remove()
+        // Solidify: drop interior holes (letter counters like O, A, e) in place so the
+        // plate is a solid backing — stronger to cut and a clean surface to glue onto.
+        // (Removing children rather than cloning keeps `plate` attached to the layer.)
+        if (plate.className === 'CompoundPath' && plate.children) {
+          plate.children.filter(c => !c.clockwise).forEach(c => c.remove())
+          plate.fillRule = 'nonzero'
+        }
+        plate.fillColor = FILL
+        textPath = plate
+        textBounds = textPath.bounds.clone()
+      }
+
       // --- SUPPORT STICKS ---
       let bottomY = textBounds ? textBounds.bottom : centerY + 30
       let leftX = textBounds ? textBounds.left : centerX - 100
       let rightX = textBounds ? textBounds.right : centerX + 100
       const spanW = rightX - leftX
 
+      // Sticks attach at the BOTTOM, so when snapping/anchoring to letters we only
+      // consider the bottom line's glyphs. Otherwise a shorter, centered upper line
+      // (e.g. "Happy" above a wider "Birthday") pulls both sticks inward to the
+      // middle of the word. Bottom line = glyphs whose center sits near the largest cy.
+      const maxGlyphCy = glyphHits.length ? Math.max(...glyphHits.map(h => h.cy)) : 0
+      const bottomHits = glyphHits.filter(h => h.cy >= maxGlyphCy - state.fontSize * 0.6)
+
+      // In none/offset modes, snap a stick's X to the nearest bottom-line glyph center
+      // so it rises straight into solid letter ink (none) / sits under a real letter on
+      // the plate (offset), instead of landing in a gap or drifting to mid-word.
+      function snapStickX(xPct) {
+        const raw = leftX + (xPct / 100) * spanW
+        if ((connType !== 'none' && connType !== 'offset') || bottomHits.length === 0) return raw
+        let best = raw, bestDist = Infinity
+        for (const h of bottomHits) {
+          const d = Math.abs(h.cx - raw)
+          if (d < bestDist) { bestDist = d; best = h.cx }
+        }
+        return best
+      }
+
       function makeStick(xPct, yOff = 0) {
-        const sx = leftX + (xPct / 100) * spanW
+        const sx = snapStickX(xPct)
         const hw = state.stickWidth / 2
         const barH = state.baselineHeight || 12
         const frameThickness = Math.max(8, Math.round((state.baseShapePadding || 20) * 0.40))
 
         let stickAnchorY = bottomY
         if (connType === 'none') {
-          // In none mode, anchor each stick to the bottom of the nearest glyph
-          // at the stick's horizontal position so dragged letters pull their sticks.
-          const hits = glyphHits  // built in the text render loop above
+          // In none mode, anchor each stick to the bottom of the nearest bottom-line
+          // glyph at the stick's horizontal position so dragged letters pull their sticks.
+          const hits = bottomHits  // bottom line only — see note above
           if (hits.length > 0) {
             let best = null, bestDist = Infinity
             for (const h of hits) {
@@ -603,6 +692,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         const overlapDepth = connType === 'none'
           ? Math.max(20, Math.round(state.fontSize * 0.55))
           : connType === 'baseline' ? Math.max(barH, Math.round(barH * 1.2))
+          : connType === 'offset' ? Math.max(16, Math.round(state.offsetMargin || 24))
           : frameThickness + 8
         const stickTop = stickAnchorY - overlapDepth + yOff
 
@@ -635,10 +725,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       stickLayoutRef.current = { leftX, spanW, bottomY }
 
       function stickAnchorForPct(xPct) {
-        if (connType !== 'none' || glyphHits.length === 0) return bottomY
+        if (connType !== 'none' || bottomHits.length === 0) return bottomY
         const sx = leftX + (xPct / 100) * spanW
         let best = null, bestDist = Infinity
-        for (const h of glyphHits) {
+        for (const h of bottomHits) {
           const dx = Math.abs(h.cx - sx)
           if (dx < bestDist) { bestDist = dx; best = h }
         }
@@ -653,10 +743,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       const newHandlePos = []
       if (state.stickCount >= 1) {
-        newHandlePos.push({ id: 's1', x: leftX + (state.stick1X / 100) * spanW, y: bottomY + stick1Y })
+        newHandlePos.push({ id: 's1', x: snapStickX(state.stick1X), y: bottomY + stick1Y })
       }
       if (state.stickCount === 2) {
-        newHandlePos.push({ id: 's2', x: leftX + (state.stick2X / 100) * spanW, y: bottomY + stick2Y })
+        newHandlePos.push({ id: 's2', x: snapStickX(state.stick2X), y: bottomY + stick2Y })
       }
       setTimeout(() => setStickHandlePos(newHandlePos), 0)
 
@@ -683,16 +773,13 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
       if (finalPath) {
         finalPath.fillColor = FILL
-        finalPath.fillRule = noBarFrameMode ? 'evenodd' : 'nonzero'
+        finalPath.fillRule = 'nonzero'
 
         // --- AUTO-BRIDGE DISCONNECTED PARTS ---
-        // Skip bridging in no-bar frame mode: bridges would wrongly connect letters
-        // to the outer ring edge (crossing through the ring band).
-        // User must ensure letters naturally touch the inner ring edge.
         let autoBridgesAdded = 0
         let maxBridgeDist = 0
 
-        if (!noBarFrameMode && finalPath.className === 'CompoundPath' && finalPath.children) {
+        if (finalPath.className === 'CompoundPath' && finalPath.children) {
           let needsBridging = true
           let bridgeAttempts = 0
           // Plaque mode has many counter-form islands (insides of O, B, D, P, etc.)
@@ -714,38 +801,47 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
             for (const contour of outerContours) {
               if (contour === mainBody) continue
 
+              // Weld this loose piece to the NEAREST other part of the design
+              // (an adjacent letter, the bar, or the ring's inner edge) — shorter,
+              // cleaner welds than always spanning to the outer perimeter. As pieces
+              // merge each pass, the whole cluster eventually joins the main body.
               const detachedCenter = contour.bounds.center
-              const mainNearest = mainBody.getNearestPoint(detachedCenter)
-              const contourNearest = contour.getNearestPoint(mainNearest)
+              let mainNearest = null, contourNearest = null, dist = Infinity
+              for (const other of finalPath.children) {
+                if (other === contour || !other.clockwise) continue
+                const op = other.getNearestPoint(detachedCenter)
+                if (!op) continue
+                const cp = contour.getNearestPoint(op)
+                if (!cp) continue
+                const d = cp.getDistance(op)
+                if (d < dist) { dist = d; mainNearest = op; contourNearest = cp }
+              }
+              if (!mainNearest) continue
 
-              const dx = mainNearest.x - contourNearest.x
-              const dy = mainNearest.y - contourNearest.y
-              const dist = Math.sqrt(dx * dx + dy * dy)
               // Scale bridge width to the isolated contour — larger pieces need wider bridges
               const maxBW = (connType === 'none' || connType === 'baseline') ? 12 : Math.max(12, contour.bounds.width * 0.30)
               const bridgeWidth = Math.max(MIN_BRIDGE_PX, Math.min(maxBW, contour.bounds.width * 0.30))
 
-              let bridge
-              if (dist < 1) {
-                // Nearly-touching: just a tiny 4×4 dot to nudge the union
-                const bx = (contourNearest.x + mainNearest.x) / 2
-                const by = (contourNearest.y + mainNearest.y) / 2
-                bridge = new scope.Path.Rectangle(
-                  new scope.Rectangle(bx - 2, by - 2, 4, 4)
-                )
-              } else {
-                const nx = -dy / dist * bridgeWidth / 2
-                const ny = dx / dist * bridgeWidth / 2
-                bridge = new scope.Path({
-                  segments: [
-                    [contourNearest.x - nx, contourNearest.y - ny],
-                    [contourNearest.x + nx, contourNearest.y + ny],
-                    [mainNearest.x + nx, mainNearest.y + ny],
-                    [mainNearest.x - nx, mainNearest.y - ny],
-                  ],
-                  closed: true,
-                })
-              }
+              // Unit direction from the loose piece toward the target.
+              const safeDist = dist < 0.0001 ? 0.0001 : dist
+              const ux = (mainNearest.x - contourNearest.x) / safeDist
+              const uy = (mainNearest.y - contourNearest.y) / safeDist
+              // Overshoot each end so the bridge OVERLAPS (not merely touches) both
+              // shapes — Paper.js will not merge contours that only share an edge.
+              const over = Math.max(4, bridgeWidth * 0.5)
+              const ax = contourNearest.x - ux * over, ay = contourNearest.y - uy * over
+              const bx = mainNearest.x + ux * over, by = mainNearest.y + uy * over
+              const nx = -uy * bridgeWidth / 2
+              const ny = ux * bridgeWidth / 2
+              const bridge = new scope.Path({
+                segments: [
+                  [ax - nx, ay - ny],
+                  [ax + nx, ay + ny],
+                  [bx + nx, by + ny],
+                  [bx - nx, by - ny],
+                ],
+                closed: true,
+              })
               bridge.fillColor = FILL
 
               try {
@@ -754,7 +850,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
                 bridge.remove()
                 finalPath = united
                 finalPath.fillColor = FILL
-                finalPath.fillRule = noBarFrameMode ? 'evenodd' : 'nonzero'
+                finalPath.fillRule = 'nonzero'
                 autoBridgesAdded++
                 if (dist > maxBridgeDist) maxBridgeDist = dist
                 needsBridging = true
@@ -768,25 +864,17 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
 
         finalPath.name = 'final-design'
 
-        // Check connectivity
+        // Check connectivity — honest count of physically separate pieces.
+        // Every clockwise (outer) contour is a distinct piece that will be cut
+        // out on its own. More than one = parts will fall apart. This holds for
+        // every connection mode: after the union + auto-bridge pass, a single
+        // cuttable design has exactly one outer contour (holes are CCW and don't
+        // count). Inner counter-forms (O, A, e holes) are counter-clockwise.
         let connected = true
         const isFrameConnector = connType !== 'baseline' && connType !== 'none'
         if (finalPath.className === 'CompoundPath' && finalPath.children) {
           const outerContours = finalPath.children.filter(c => c.clockwise)
-          if (outerContours.length > 1) {
-            if (isFrameConnector) {
-              // The ring IS the structural element. Only flag red when contours
-              // fall completely outside the ring — they would physically detach.
-              // Letters inside the ring floating slightly are expected and acceptable.
-              const mainRing = outerContours.reduce((a, b) =>
-                a.bounds.area > b.bounds.area ? a : b)
-              const outsideRing = outerContours.filter(c =>
-                c !== mainRing && !mainRing.bounds.contains(c.bounds.center))
-              if (outsideRing.length > 0) connected = false
-            } else {
-              connected = false
-            }
-          }
+          if (outerContours.length > 1) connected = false
         }
 
         if (!connected) {
@@ -811,22 +899,14 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         // If connected, bridges were micro-gaps that got fixed — no warning needed.
         if (!connected) {
           const isMultiLine = text.split('\n').filter(l => l.length > 0).length > 1
-          if (isMultiLine && connType === 'baseline') {
+          if (connType === 'offset') {
+            newWarnings.push('Backing plate is in pieces — increase Offset Margin so the letters merge into one plate')
+          } else if (isFrameConnector && state.showInternalBar === false) {
+            newWarnings.push('Letters not welded to frame — enable Internal Bar or increase font size')
+          } else if (isMultiLine && connType === 'baseline') {
             newWarnings.push('Lines not touching — reduce Line Height or hit Auto Fit')
           } else {
             newWarnings.push('Parts disconnected — widen the connector or adjust spacing')
-          }
-        } else if (isFrameConnector && noBarFrameMode &&
-                   finalPath.className === 'CompoundPath' && finalPath.children) {
-          // Soft warning: some letters float inside the ring but the frame is solid.
-          const outers = finalPath.children.filter(c => c.clockwise)
-          if (outers.length > 1) {
-            const mainRing = outers.reduce((a, b) => a.bounds.area > b.bounds.area ? a : b)
-            const innerFloating = outers.filter(c =>
-              c !== mainRing && mainRing.bounds.contains(c.bounds.center))
-            if (innerFloating.length > 0) {
-              newWarnings.push('Some letters not welded to frame — increase font size or enable Internal Bar')
-            }
           }
         }
 
@@ -835,6 +915,21 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
           setTimeout(() => storeRef.current.update({ isConnected: connected }), 0)
         }
         setTimeout(() => setCutWarnings(newWarnings), 0)
+      }
+
+      // --- OFFSET MODE: plate is the muted backing, letters sit on top in full color ---
+      // Communicates the physical build: a light backing plate (cut + scored) with the
+      // darker cut-out letters glued on top.
+      if (connType === 'offset' && offsetLetterPath) {
+        if (finalPath) {
+          const plateColor = FILL.clone()
+          plateColor.alpha = 0.32
+          finalPath.fillColor = plateColor
+        }
+        offsetLetterPath.fillColor = FILL
+        offsetLetterPath.fillRule = 'nonzero'
+        offsetLetterPath.name = 'offset-letters'
+        offsetLetterPath.bringToFront()
       }
 
       // --- SELECTION INDICATOR ---
@@ -962,7 +1057,7 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
     } catch { /* invalid */ }
   }, [getCanvasPoint])
 
-  // --- EXPORT: Single-path SVG ---
+  // --- EXPORT: cut-ready SVG (single piece, or two files in offset mode) ---
   useImperativeHandle(ref, () => ({
     exportSVG: () => {
       const scope = scopeRef.current
@@ -985,33 +1080,73 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         if (!proceed) return
       }
 
-      const exportPath = finalDesign.clone()
-      const bounds = exportPath.bounds
       const pad = 10
-      const svgStr = exportPath.exportSVG({ asString: true })
+      const stamp = Date.now()
 
-      const w = bounds.width + pad * 2
-      const h = bounds.height + pad * 2
-      const targetWidthIn = storeRef.current.state.outputWidthInches || 10
-      const mmPerPx = (targetWidthIn * 25.4) / bounds.width
-      const widthMm = w * mmPerPx
-      const heightMm = h * mmPerPx
-      const svg = `<?xml version="1.0" encoding="UTF-8"?>
+      // Build one SVG string from a set of items at a FIXED physical scale (mmPerPx),
+      // so multiple files (plate + letters) come out at matching real-world size.
+      // Each item: { path, mode: 'cut' | 'score' }.
+      const buildSVG = (items, bounds, mmPerPx) => {
+        const w = bounds.width + pad * 2
+        const h = bounds.height + pad * 2
+        const body = items.map(({ path, mode }) => {
+          const c = path.clone()
+          if (mode === 'score') {
+            // Thin blue outline = score/etch guide (where to glue the letters).
+            c.fillColor = null
+            c.strokeColor = new scope.Color('#0000ff')
+            c.strokeWidth = Math.max(0.4, 0.15 / mmPerPx) // ~0.15mm hairline
+          } else {
+            c.strokeColor = null
+            c.fillColor = new scope.Color('#000000')
+          }
+          const str = c.exportSVG({ asString: true })
+          c.remove()
+          return str
+        }).join('\n  ')
+        const widthMm = w * mmPerPx
+        const heightMm = h * mmPerPx
+        return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      viewBox="${bounds.x - pad} ${bounds.y - pad} ${w} ${h}"
-     width="${widthMm.toFixed(2)}mm" height="${heightMm.toFixed(2)}mm"
-     fill="#000000" stroke="none">
-  ${svgStr}
+     width="${widthMm.toFixed(2)}mm" height="${heightMm.toFixed(2)}mm">
+  ${body}
 </svg>`
+      }
 
-      const blob = new Blob([svg], { type: 'image/svg+xml' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `cake-topper-${Date.now()}.svg`
-      a.click()
-      URL.revokeObjectURL(url)
-      exportPath.remove()
+      const download = (svg, name) => {
+        const blob = new Blob([svg], { type: 'image/svg+xml' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = name
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+
+      const targetWidthIn = storeRef.current.state.outputWidthInches || 10
+      const isOffset = (storeRef.current.state.connectionType === 'offset')
+      const letters = designLayer.children.find(c => c.name === 'offset-letters')
+
+      // Scale is anchored to the FULL design width (the plate in offset mode), so the
+      // letters file stays at the same scale as the plate it glues onto.
+      const baseBounds = finalDesign.bounds
+      const mmPerPx = (targetWidthIn * 25.4) / baseBounds.width
+
+      if (isOffset && letters) {
+        // File 1 — backing plate + sticks (cut) with letter outlines as score lines.
+        const base = buildSVG(
+          [{ path: finalDesign, mode: 'cut' }, { path: letters, mode: 'score' }],
+          baseBounds, mmPerPx
+        )
+        download(base, `cake-topper-${stamp}-base-plate.svg`)
+        // File 2 — the letters to cut (glued onto the scored plate). Same scale.
+        const letterSvg = buildSVG([{ path: letters, mode: 'cut' }], letters.bounds, mmPerPx)
+        download(letterSvg, `cake-topper-${stamp}-letters.svg`)
+      } else {
+        const svg = buildSVG([{ path: finalDesign, mode: 'cut' }], baseBounds, mmPerPx)
+        download(svg, `cake-topper-${stamp}.svg`)
+      }
     },
     checkConnections: () => {
       storeRef.current.update({ isConnected: connectedRef.current })
@@ -1025,7 +1160,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
       const lines = s.text.trim().split('\n').filter(l => l.length > 0)
       const isMultiLine = lines.length > 1
       const connType = s.connectionType || 'baseline'
-      const isFrameMode = connType !== 'baseline' && connType !== 'none'
+      // Surrounding-frame connectors only — 'offset' (backing plate) is sized separately.
+      const isFrameMode = ['circle', 'rectangle', 'diamond', 'freeform'].includes(connType)
 
       // ── 1. Font size ──────────────────────────────────────────────────────────
       // No-bar frame mode: larger target so letters reach the ring inner edge.
@@ -1072,6 +1208,10 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
         const pad = hasBar ? Math.max(20, Math.round(fontSize * 0.30)) : 10
         updates.baseShapePadding = pad
         // Never override the user's showInternalBar choice here.
+      } else if (connType === 'offset') {
+        // Margin wide enough that naturally-spaced letters (and the word gap) merge
+        // into one continuous backing plate.
+        updates.offsetMargin = Math.max(14, Math.round(fontSize * 0.22))
       }
 
       // ── 4. Sticks ─────────────────────────────────────────────────────────
@@ -1122,6 +1262,8 @@ const Canvas = forwardRef(function Canvas({ store }, ref) {
             </svg>
             {store.state.connectionType === 'none'
               ? 'Pieces floating — try ↑ Letter Spacing or enable a connector in Structure'
+              : store.state.connectionType === 'offset'
+              ? 'Backing plate split — increase Offset Margin in Structure'
               : 'Parts disconnected — widen the connector or adjust spacing'}
           </div>
         )}
